@@ -1,0 +1,78 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Logical Operations</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp7"></A>Logical Operations</H2>
+<P>You can use <A HREF="def_logical_operation.htm">Logical Operations</A> to
+combine the results from different patterns together. This is particularly
+useful when the <A HREF="def_search_mode.htm">Search Mode</A> is <B>Full Text
+Search</B>, as it helps you to cut down the number of
+<A HREF="def_dictionary_definition.htm">Dictionary Definitions</A> that are
+matched.</P>
+<P>TEA allows three commonly used logical operations in patterns: AND
+(represented by <CODE>&amp;</CODE> in patterns), OR (represented by
+<CODE>|</CODE>) and NOT (represented by <CODE>!</CODE>).</P>
+<P>The following examples show logical operations used in <B>Word Search</B>
+mode. For examples in <B>Full Text Search</B> mode, see
+<A HREF="searching_for_definitions.htm">Searching for Definitions</A>.</P>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="38%"><CODE>1*1 &amp; *date*</CODE></TD>
+<TD WIDTH="40%">finds words that start and end with the same letter AND include
+the word DATE somewhere</TD>
+<TD WIDTH="22%"> <PRE><CODE>dated
+elucidate
+sedateness
+dilapidated</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="38%"><CODE>....cous | cous....</CODE></TD>
+<TD WIDTH="40%">finds eight-letter words that either start or end COUS; note
+that <CODE>couscous</CODE>, which does both, is only matched once</TD>
+<TD WIDTH="22%"> <PRE><CODE>aduncous
+caducous
+couscous
+cousinly
+cousinry
+glaucous
+muticous</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="38%"><CODE>;tearing &amp; ! *ing*</CODE></TD>
+<TD WIDTH="40%">finds anagrams of TEARING that do not contain the letters ING
+in sequence</TD>
+<TD WIDTH="22%"> <PRE><CODE>granite
+gratin&eacute;</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="38%"><CODE>(p* | *p) &amp; ;q......</CODE></TD>
+<TD WIDTH="40%">finds seven-letter words starting or ending with P and
+containing Q</TD>
+<TD WIDTH="22%"> <PRE><CODE>parquet
+piquant
+prequel
+reequip</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<H2>Further Help</H2>
+<P><A HREF="searching_for_definitions.htm">Searching for Definitions</A></P>
+</BODY>
+</HTML>
+

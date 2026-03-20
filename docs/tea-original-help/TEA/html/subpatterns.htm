@@ -1,0 +1,58 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Sub-Patterns</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp9"></A>Sub-Patterns</H2>
+<P>If you only want to represent part of a word using a pattern, you can do
+this with sub-patterns. You indicate a sub-pattern by enclosing it in round
+brackets <CODE>()</CODE>.</P>
+<P>Typical uses of sub-patterns are to: </P>
+<UL>
+<LI>include an <A HREF="def_anagram.htm">Anagram</A> within a
+<A HREF="def_template.htm">Template</A>; for example, if part of a crossword
+answer is known to be an anagram of a set of letters, this can be represented
+with a sub-pattern</LI>
+<LI>include a <A HREF="def_template.htm">Template</A> within an
+<A HREF="def_anagram.htm">Anagram</A>; for example, if a crossword answer is
+known to be a jumble of a fixed sequence of letters and other letters in random
+order, this can be represented with a sub-pattern</LI>
+</UL>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="28%"><CODE>...(;orange)</CODE></TD>
+<TD WIDTH="50%">finds nine-letter words where the last<BR>
+six letters are an anagram of ORANGE</TD>
+<TD WIDTH="22%"> <PRE><CODE>patronage</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="28%"> <CODE>;rebel(ada)</CODE></TD>
+<TD WIDTH="50%">finds words with ADA in sequence and<BR>
+in order;<BR>
+and the letters of REBEL in any order</TD>
+<TD WIDTH="22%"> <PRE><CODE>readable</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="28%"> <CODE>;umber(;lily)</CODE></TD>
+<TD WIDTH="50%">finds words with LILY in sequence, but<BR>
+not necessarily in order;<BR>
+and the letters of UMBER in any order</TD>
+<TD WIDTH="22%"> <PRE><CODE>beryllium</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+</BODY>
+</HTML>
+

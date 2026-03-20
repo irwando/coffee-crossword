@@ -1,0 +1,77 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Choice Lists</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp3"></A>Choice Lists</H2>
+<P>To match words where one or more letters must come from a restricted set,
+use a <A HREF="def_choice_list.htm">Choice List</A>. Square brackets
+surrounding the set of letters indicate that any one of the letters can be
+chosen. For example, <CODE>[aeiou]</CODE> indicates that any vowel is allowed. 
+</P>
+<P>If a caret (<CODE>^</CODE>) appears at the start of the choice list, it
+indicates that any letter <I>except</I> the indicated set is allowed. For
+example, <CODE>[^aeiou]</CODE> indicates that any consonant is allowed.</P>
+<P>Choice lists can be used in either the template part of a pattern or the
+anagram part of a pattern: in a template, the chosen letter must appear in
+sequence where the choice list appears; in an anagram, the chosen letter can be
+positioned anywhere in the word.</P>
+<P><A HREF="macros.htm">Macros</A> are often used to abbreviate choice lists to
+a single character: by default, the <CODE>@</CODE> macro expands to
+<CODE>[aeiou]</CODE> and the <CODE>#</CODE> macro expands to
+<CODE>[^aeiou]</CODE>.</P>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="32%"><CODE>[xyz]..[abc]</CODE></TD>
+<TD WIDTH="51%">shows all the four-letter words<BR>
+starting with X, Y or Z and<BR>
+ending with A, B or C</TD>
+<TD WIDTH="17%"> <PRE><CODE>yoga
+zeta
+zinc</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="32%"><CODE>;str[aeiou]</CODE></TD>
+<TD WIDTH="51%">finds words containing S, T, R<BR>
+and any vowel</TD>
+<TD WIDTH="17%"> <PRE><CODE>arts
+erst
+rest
+rust
+sort
+star
+stir
+tsar</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="32%"><CODE>l[^aeiou]...</CODE></TD>
+<TD WIDTH="51%">finds five-letter words starting<BR>
+with L and a consonant</TD>
+<TD WIDTH="17%"> <PRE><CODE>llama
+llano
+lying
+lymph
+lynch
+lyric</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<H2>Further Help</H2>
+<P><A HREF="templates_with_anagrams.htm">Templates with Anagrams</A><BR>
+<A HREF="macros.htm">Macros</A></P>
+</BODY>
+</HTML>
+

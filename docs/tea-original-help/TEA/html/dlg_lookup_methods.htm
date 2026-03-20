@@ -1,0 +1,64 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Lookup Methods Dialog</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<P><A NAME="idd_lookupproperties"></A><B>Lookup Methods Dialog</B></P>
+<P>Use the Lookup Methods dialog to configure the
+<A HREF="edit_external_lookup.htm">Edit|External Lookup Commands</A> and
+identify which is the default one.</P>
+<P>If the box at the left of a method is checked, the method is enabled and
+will appear in the <A HREF="submenu_external_lookup.htm">External Lookup
+Submenu</A>. The single method with a black check mark is the default (the one
+invoked when a shortcut such as <B>Ctrl+Alt+Enter</B> is used).</P>
+<P>The method's <B>Name</B> becomes the name of the command in the
+<A HREF="submenu_external_lookup.htm">External Lookup Submenu</A>. If you
+precede a letter of the name with an ampersand (&amp;) that will be underlined
+in the menu, indicating that the letter acts as a shortcut.</P>
+<P>For an up-to-date list of Internet search engines and applications you can
+configure, see the Dictionary Software page of the Crossword Man web site.</P>
+<H2>Web Searches</H2>
+<P>Internet search engines are the most commonly used external lookup methods.
+Enter the address used to do the search in the box to the right of the
+<B>Address:</B> label. Include <B><CODE>{entry}</CODE></B> to indicate where
+the word or phrase being looked up should appear as part of the address.</P>
+<P>To switch off a lookup method, click the box at the far left till the check
+mark disappears. To make a lookup method the default, click the box till a
+black check mark appears (the check marks for the other enabled methods will
+turn gray indicating that they are not the default method).</P>
+<H2>Legacy Application Support</H2>
+<P>TEA also supports some older <A HREF="def_electronic.htm">Electronic
+Dictionary</A> applications that don't use the standard clipboard copy
+interface to identify words to be looked up. Three styles of interface are
+possible: </P>
+<UL>
+<LI><B>DDE Interface</B>. Some Electronic Dictionary applications (such as
+those based on the <B>CompLex</B> software) support lookup from other
+applications using Dynamic Data Exchange.</LI>
+<LI><B>Message Interface</B>. With some other Electronic Dictionary
+applications (such as the <B>American Heritage Dictionary for Windows</B>),
+applications must send a Windows message to look up a word.</LI>
+<LI><B>Application Interface</B>. Some Electronic Dictionary applications (such
+as the <B>Cassell Concise Dictionary</B>) include an application that, when
+run, looks up a word.</LI>
+</UL>
+<P>All these methods are switched off by default. If you have one of the
+supported applications, you can switch on its entry by checking the box at the
+far left of the dictionary row.</P>
+<H3>Test word</H3>
+<P>You can test the default method (the one with a black check mark) by
+entering the text to be looked up in this box and clicking on the <B>Test
+Lookup</B> button. If the application uses a <B>DDE</B> or <B>Message
+Interface</B>, you need to start it before running the test.</P>
+<H3>Save as defaults</H3>
+<P>Click on this button to use the settings as the defaults when TEA starts.
+Otherwise they will only apply for the current TEA session.</P>
+</BODY>
+</HTML>
+

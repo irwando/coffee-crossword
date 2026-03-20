@@ -1,0 +1,87 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Templates with Anagrams</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp4"></A>Templates with Anagrams</H2>
+<P>The concepts of <A HREF="templates.htm">Templates</A> and
+<A HREF="anagrams.htm">Anagrams</A> can be combined in a single pattern. You
+use a semi-colon (<CODE>;</CODE>) to indicate where the anagram starts. TEA
+only displays the words that match both the template and the anagram parts of
+the pattern. </P>
+<P>This type of search is useful for solving anagram clues where you know some
+of the letters from other answers already entered into a crossword grid.</P>
+<P>It is also useful for finding the longest words from a set of letters, such
+as those found on a <A HREF="def_scrabble.htm">Scrabble&reg;</A> rack or in
+<A HREF="def_countdown.htm">Countdown</A>. Specifying a template that consists
+of a number of <A HREF="def_matchall.htm">Match-All Characters</A> and a
+<A HREF="def_wildcard.htm">Wildcard</A> ensures that very short words are not
+displayed; you could also use the <B>Shortest</B> setting on the
+<A HREF="window_main.htm">TEA Main Window</A> to do the same thing.</P>
+<P><A HREF="anagram_balances.htm">Anagram Balances</A> are particularly useful
+with this kind of pattern: unused letters in the anagram are shown after a
+minus (<CODE>-</CODE>); if a dot is included in the anagram to represent a
+blank tile in Scrabble&reg;, the letter used for the blank is shown after a
+plus (<CODE>+</CODE>).</P>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="34%"><CODE>e........;cats</CODE></TD>
+<TD WIDTH="36%">shows all nine letter words<BR>
+starting E and including<BR>
+C, A, T, S</TD>
+<TD WIDTH="30%"> <PRE><CODE>escalator +AELOR
+exactness +EENSX</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="34%"> <CODE>.....*;aadmort</CODE></TD>
+<TD WIDTH="36%">finds words of five letters or<BR>
+longer from the Scrabble&reg; rack<BR>
+AADMORT</TD>
+<TD WIDTH="30%"> <PRE><CODE>aorta &#150;DM
+aroma &#150;DT
+drama &#150;OT
+matador</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="34%"><CODE>......*;ehiktt.</CODE></TD>
+<TD WIDTH="36%">finds words of six letters or<BR>
+longer from the Scrabble&reg; rack<BR>
+EHIKTT?</TD>
+<TD WIDTH="30%"> <PRE><CODE>hitter -K+R
+kitten -H+N
+theist -K+S
+ticket -H+C
+tither -K+R
+thicket +C</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="34%"> <CODE>.......*;rexadigno</CODE></TD>
+<TD WIDTH="36%">finds words of seven letters or<BR>
+more from REXADIGNO</TD>
+<TD WIDTH="30%"> <PRE><CODE>adoring &#150;EX
+grained &#150;OX
+reading &#150;OX
+organdie -X</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<H2>Further Help</H2>
+<P><A HREF="anagram_balances.htm">Anagram Balances</A></P>
+</BODY>
+</HTML>
+

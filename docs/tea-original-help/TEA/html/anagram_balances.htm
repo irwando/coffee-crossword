@@ -1,0 +1,72 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Anagram Balances</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="balances"></A>Anagram Balances</H2>
+<P>When you match a pattern that includes an <A
+HREF="def_anagram.htm">Anagram</A> part, TEA can add letters that weren&#146;t
+specified in the anagram or omit letters that were specified. The information
+about the additions and omissions is only displayed after the matched word if
+<B>Show anagram balances</B> is checked in the <A
+HREF="tab_options_result.htm">Options Result Tab</A>.</P>
+<P>The unspecified letters that are added appear after a plus sign (in this
+example a D is added):</P>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="cols">
+<TR VALIGN="top">
+<TD WIDTH="29%"> <CODE>;eiknrr.</CODE></TD>
+<TD WIDTH="45%">finds words using the letters EIKNRR<BR>
+and one unspecified letter</TD>
+<TD WIDTH="26%"> <PRE><CODE>drinker +D</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<P>The specified letters that are omitted appear after a minus sign:</P>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="cols">
+<TR VALIGN="top">
+<TD WIDTH="30%"><CODE>.....;defijnx</CODE></TD>
+<TD WIDTH="45%">finds five-letter words from the selection<BR>
+DEFIJNX</TD>
+<TD WIDTH="25%"> <PRE><CODE>fiend &#150;JX
+fixed &#150;JN
+index -FJ</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<P>There can be both additions and omissions with some patterns:</P>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="cols">
+<TR VALIGN="top">
+<TD WIDTH="29%"><CODE>......*;bdeeio.</CODE></TD>
+<TD WIDTH="43%">finds six-letter words from the selection<BR>
+BDEEIO and one unspecified letter</TD>
+<TD WIDTH="28%"> <PRE><CODE>beside -O+S
+bodice -E+C
+edible -O+L</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<P>The above examples show how anagram balances can be used when playing
+<A HREF="def_scrabble.htm">Scrabble&reg;</A>: the letters after the minus show
+what&#146;s left over after a play and the letters after the plus show how any
+blank(s) have been used.</P>
+<P>Anagram balances are shown using the same special font as for
+<A HREF="def_annotation.htm">Annotations</A>. This font is changed using the
+<B>Results Annotation Font</B> setting in the
+<A HREF="tab_options_appearance.htm">Options Appearance Tab</A>.</P>
+<H2>Further Help</H2>
+<P><A HREF="tab_options_result.htm">Options Result Tab</A></P>
+</BODY>
+</HTML>
+

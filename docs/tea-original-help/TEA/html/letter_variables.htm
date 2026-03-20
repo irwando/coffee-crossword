@@ -1,0 +1,80 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Letter Variables</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp5"></A>Letter Variables</H2>
+<P><A HREF="def_letter_variable.htm">Letter Variables</A> are used to find
+words where the letters at certain positions are known to be the same. You can
+use any of the digits <CODE>0</CODE> to <CODE>9</CODE> to signify a letter
+variable in a pattern. If you check the <B>Exclusive letter variables</B>
+setting on the <A HREF="tab_options_pattern.htm">Options Pattern Tab</A>, TEA
+ensures that each variable corresponds to a different letter.</P>
+<P>Letter variables do not have to be used on their own in patterns: you can
+use them in combination with <A HREF="def_matchall.htm">Match-All
+Characters</A>, <A HREF="def_wildcard.htm">Wildcards</A> and
+<A HREF="def_choice_list.htm">Choice Lists</A>. They can appear in both the
+<A HREF="def_template.htm">Template</A> and <A
+HREF="def_anagram.htm">Anagram</A> part of a TEA pattern.</P>
+<P>Letter variables have a number of uses illustrated in the examples below:
+they can help solve <A HREF="def_cryptogram.htm">Cryptograms</A> by identifying
+words that have a number of repeating letters. They can identify words with
+unusual properties such as <A HREF="def_palindrome.htm">Palindromes</A>,
+<A HREF="def_isogram.htm">Isograms</A> and <A
+HREF="def_tautonym.htm">Tautonyms</A>.</P>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="20%"><CODE>1234321</CODE></TD>
+<TD WIDTH="51%">finds seven-letter <A
+HREF="def_palindrome.htm">Palindromes</A></TD>
+<TD WIDTH="29%"> <PRE><CODE>deified
+Nauruan
+repaper
+reviver
+rotator</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="20%"><CODE>;11223344</CODE></TD>
+<TD WIDTH="51%">finds eight-letter pair <A
+HREF="def_isogram.htm">Isograms</A></TD>
+<TD WIDTH="29%"> <PRE><CODE>beriberi
+reappear
+team-mate</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="20%"><CODE>.122..11.</CODE></TD>
+<TD WIDTH="51%">finds words with repeating letters<BR>
+as shown (typical <A HREF="def_cryptogram.htm">Cryptogram</A> search)</TD>
+<TD WIDTH="29%"> <PRE><CODE>gleefully
+Hollywood</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="20%"><CODE>123*321</CODE></TD>
+<TD WIDTH="51%">finds ending with the first three letters<BR>
+reversed</TD>
+<TD WIDTH="29%"> <PRE><CODE>lackadaisical
+marjoram
+revolver</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<H2>Further Help</H2>
+<P><A HREF="tab_options_pattern.htm">Options Pattern Tab</A></P>
+</BODY>
+</HTML>
+

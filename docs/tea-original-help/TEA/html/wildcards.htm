@@ -1,0 +1,73 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Wildcards</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp2"></A>Wildcards</H2>
+<P>To match words with a range of lengths, use an asterisk known as a
+<A HREF="def_wildcard.htm">Wildcard</A>. An asterisk in a pattern represents
+zero or more unknown letters.</P>
+<P>Wildcards can be used in either the template part of a pattern or the
+anagram part of a pattern: in a template, the unknown letters must appear in
+sequence where the asterisk appears; in an anagram, the unknown letters can be
+positioned anywhere in the word and the letters used to replace the unknowns
+are shown after a <CODE>+</CODE> in <A HREF="anagram_balances.htm">Anagram
+Balances</A>.</P>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="19%"><CODE>y*y</CODE></TD>
+<TD WIDTH="35%">shows all the words starting<BR>
+and ending with a Y</TD>
+<TD WIDTH="46%"> <PRE><CODE>yucky
+yummy
+yuppy
+yearly
+yeasty
+yellowy
+yeomanry
+yesterday
+youthfully</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="19%"><CODE>;opqr*</CODE></TD>
+<TD WIDTH="35%">finds words containing O, P, Q, R<BR>
+and any other letters</TD>
+<TD WIDTH="46%"> <PRE><CODE>propinquity +IINPTUY
+quadraphonic +AACDHINU
+quadruplication +AACDIILNTUU</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="19%"><CODE>*a*e*i*o*u*</CODE></TD>
+<TD WIDTH="35%">finds words having all the vowels<BR>
+in alphabetic order</TD>
+<TD WIDTH="46%"> <PRE><CODE>facetious
+abstemious
+facetiously
+abstemiously
+adventitious
+sacrilegious
+facetiousness
+abstemiousness
+adventitiously
+sacrilegiously</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<H2>Further Help</H2>
+<P><A HREF="templates_with_anagrams.htm">Templates with Anagrams</A></P>
+</BODY>
+</HTML>
+

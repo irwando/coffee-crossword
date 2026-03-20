@@ -1,0 +1,303 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<HTML>
+<HEAD>
+<meta name="GENERATOR" content="Microsoft&reg; HTML Help Workshop 4.1">
+<!-- Sitemap 1.0 -->
+</HEAD><BODY>
+<UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Quick Start">
+		<param name="Local" value="html/quick_start.htm">
+		</OBJECT>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Other Software You Might Like">
+		<param name="Local" value="html/other_software.htm">
+		</OBJECT>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Introduction">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Welcome to TEA Crossword Helper">
+			<param name="Local" value="html/feature_summary.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Conventions used in Help">
+			<param name="Local" value="html/conventions.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="What's New">
+			<param name="Local" value="html/whats_new.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Contact Information">
+			<param name="Local" value="html/contact.htm">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Using TEA Patterns">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Overview">
+			<param name="Local" value="html/overview_patterns.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Templates">
+			<param name="Local" value="html/templates.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Anagrams">
+			<param name="Local" value="html/anagrams.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Wildcards">
+			<param name="Local" value="html/wildcards.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Choice Lists">
+			<param name="Local" value="html/choice_lists.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Templates with Anagrams">
+			<param name="Local" value="html/templates_with_anagrams.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Letter Variables">
+			<param name="Local" value="html/letter_variables.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Punctuation Matching">
+			<param name="Local" value="html/punctuation_matching.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Logical Operations">
+			<param name="Local" value="html/logical_operations.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Macros">
+			<param name="Local" value="html/macros.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Sub-Patterns">
+			<param name="Local" value="html/subpatterns.htm">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Dictionaries">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Overview">
+			<param name="Local" value="html/overview_dictionaries.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Core English">
+			<param name="Local" value="html/dictionary_core_english.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Edited English">
+			<param name="Local" value="html/dictionary_edited_english.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Unedited English">
+			<param name="Local" value="html/dictionary_unedited_english.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Wikipedia English">
+			<param name="Local" value="html/dictionary_wikipedia_english.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Anagrams">
+			<param name="Local" value="html/dictionary_anagrams.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Reversibles">
+			<param name="Local" value="html/dictionary_reversibles.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Letter Banks">
+			<param name="Local" value="html/dictionary_letterbanks.htm">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Results List Features">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Overview">
+			<param name="Local" value="html/overview_results_lists.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Anagram Balances">
+			<param name="Local" value="html/anagram_balances.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Selection">
+			<param name="Local" value="html/selection.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Lookup">
+			<param name="Local" value="html/lookup.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Printing">
+			<param name="Local" value="html/printing.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Exporting">
+			<param name="Local" value="html/exporting.htm">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Definition Features">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Overview">
+			<param name="Local" value="html/overview_definitions.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Viewing Definitions">
+			<param name="Local" value="html/viewing_definitions.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Searching for Definitions">
+			<param name="Local" value="html/searching_for_definitions.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Navigating between Definitions">
+			<param name="Local" value="html/definition_navigating.htm">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Customizing TEA">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Overview">
+			<param name="Local" value="html/overview_customization.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Dictionary Selection and Ordering">
+			<param name="Local" value="html/dictionary_selection_and_ordering.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Pattern Processing">
+			<param name="Local" value="html/pattern_processing.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Results Presentation">
+			<param name="Local" value="html/results_presentation.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Main Window Appearance">
+			<param name="Local" value="html/main_window_appearance.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Definition Window Appearance">
+			<param name="Local" value="html/definition_window_appearance.htm">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Console Application">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Usage">
+			<param name="Local" value="html/console.htm">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Reference">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Parts of the Main Window">
+			<param name="Local" value="html/window_main.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Parts of the Definition Window">
+			<param name="Local" value="html/definition_window.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Menus">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Menu Overview">
+				<param name="Local" value="html/overview_menu.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="File Menu">
+				<param name="Local" value="html/menu_file.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Edit Menu">
+				<param name="Local" value="html/menu_edit.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Tool Menu">
+				<param name="Local" value="html/menu_tools.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Window Menu">
+				<param name="Local" value="html/menu_window.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Help Menu">
+				<param name="Local" value="html/menu_help.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Search Context Menu">
+				<param name="Local" value="html/menu_search_context.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Dictionary Context Menu">
+				<param name="Local" value="html/menu_dictionary_context.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Result Context Menu">
+				<param name="Local" value="html/menu_result_context.htm">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Options Dialog">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Options Dialog Overview">
+				<param name="Local" value="html/overview_options_dialog.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Options Pattern Tab">
+				<param name="Local" value="html/tab_options_pattern.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Options Result Tab">
+				<param name="Local" value="html/tab_options_result.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Options Sorting Tab">
+				<param name="Local" value="html/tab_options_sorting.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Options Dictionary Tab">
+				<param name="Local" value="html/tab_options_dictionary.htm">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Options Appearance Tab">
+				<param name="Local" value="html/tab_options_appearance.htm">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Glossary">
+			<param name="Local" value="html/glossary.htm">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Further Reading">
+			<param name="Local" value="html/further_reading.htm">
+			</OBJECT>
+	</UL>
+</UL>
+</BODY></HTML>

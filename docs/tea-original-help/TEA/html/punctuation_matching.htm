@@ -1,0 +1,103 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Punctuation Matching</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp6"></A>Punctuation Matching</H2>
+<P>If you include punctuation as part of a <A
+HREF="def_template.htm">Template</A>, TEA will only show words that have that
+punctuation at the specified position (and no more). Space, hyphen and
+apostrophe are examples of punctuation characters that are commonly searched
+for.</P>
+<P>If you include a specific punctuation character, TEA expects to match that
+character exactly. For example, if you say a hyphen must occur after the third
+letter, then words that have hyphens after the third letter <B>and</B> sixth
+letter won't be matched. (If <B>Ignore unused punctuation</B> is not checked in
+the <A HREF="tab_options_pattern.htm">Options Pattern Tab</A>, then TEA expects
+to match all punctuation characters exactly, even those never included in the
+pattern. In this situation, if you say a hyphen must occur after the third
+letter, then words that have a hyphen after the third letter <B>and</B> a space
+after the sixth letter won't be matched.)</P>
+<P>If you want to search for one of the <A
+HREF="def_metacharacter.htm">Metacharacters</A> that have a specific meaning in
+pattern matching, you must precede it by the <A
+HREF="def_escape_character.htm">Escape Character</A> (<CODE>\</CODE>) to
+indicate that you want the literal character to be matched.</P>
+<P>Case differences and accents are normally ignored, but you can search for a
+letter in a specific case or with a specific accent by preceding it with the
+<A HREF="def_escape_character.htm">Escape Character</A> (<CODE>\</CODE>).</P>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="23%"><CODE>....-..-..</CODE></TD>
+<TD WIDTH="54%">finds eleven letter words hyphenated with a 4-2-2 pattern</TD>
+<TD WIDTH="23%"> <PRE><CODE>pick-me-up
+well-to-do
+</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="23%"><CODE>* ..d</CODE></TD>
+<TD WIDTH="54%">finds phrases where the last word is a three-letter word ending
+with D</TD>
+<TD WIDTH="23%"> <PRE><CODE>dead end
+rear end
+seed pod
+launch pad
+</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="23%"><CODE>.......\!</CODE></TD>
+<TD WIDTH="54%">finds 5-letter answers ending with an exclamation mark</TD>
+<TD WIDTH="23%"> <PRE><CODE>my hat!
+oh boy!
+Whaam!
+</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="23%"><CODE>...-....... ...</CODE></TD>
+<TD WIDTH="54%">with <B>Ignore unused punctuation</B> checked, finds</TD>
+<TD WIDTH="23%"><PRE><CODE>Gay-Lussac's law
+pre-emptive bid
+</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="23%"><CODE>...-....... ...</CODE></TD>
+<TD WIDTH="54%">with <B>Ignore unused punctuation</B> unchecked, finds
+just</TD>
+<TD WIDTH="23%"><PRE><CODE>pre-emptive bid
+</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="23%"><CODE>\A....</CODE></TD>
+<TD WIDTH="54%">finds 5-letter words starting with a capital A</TD>
+<TD WIDTH="23%"> <PRE><CODE>Ascot</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="23%"><CODE>*'*'*'*</CODE></TD>
+<TD WIDTH="54%">finds words containing at least three apostrophes</TD>
+<TD WIDTH="23%"> <PRE><CODE>fo'c's'le</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+</BODY>
+</HTML>
+

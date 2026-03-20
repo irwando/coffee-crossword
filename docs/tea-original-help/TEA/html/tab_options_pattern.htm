@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Options Pattern Tab</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<P><A NAME="ids_teatabpattern"></A><B>Options Pattern Tab</B></P>
+<P>Use the Options Pattern Tab to change the way <A
+HREF="def_macro.htm">Macros</A> and <A HREF="def_letter_variable.htm">Letter
+Variables</A> are treated in patterns. To access these settings, use the
+<A HREF="tools_options.htm">Tools|Options Command</A> and click on the
+<B>Pattern</B> tab.</P>
+<P>Click on <B>Save as defaults</B> to use the settings on the tab as the
+defaults when TEA starts up.</P>
+<H3>@ becomes<BR>
+# becomes</H3>
+<BLOCKQUOTE><P>The macro characters <CODE>@</CODE> and <CODE>#</CODE> in
+patterns are replaced by the text you enter here.</P>
+<P>The default setting for <CODE>@</CODE> is <CODE>[aeiou]</CODE> and the
+default setting for <CODE>#</CODE> is <CODE>[^aeiou]</CODE>. This means they
+can be used to represent a vowel in a word and a consonant in a word.</P>
+</BLOCKQUOTE>
+<H3>Exclusive letter variables</H3>
+<BLOCKQUOTE><P>There are two ways <A HREF="def_letter_variable.htm">Letter
+Variables</A> can be interpreted in patterns: </P>
+<UL>
+<LI>with exclusive letter variables, each number must equate to a different
+letter</LI>
+<LI>with non-exclusive letter variables, different numbers can equate to the
+same letter</LI>
+</UL>
+<P>If you are trying to solve <A HREF="def_cryptogram.htm">Cryptograms</A>,
+exclusive letter variables tend to be more appropriate. If you are searching
+for <A HREF="def_palindrome.htm">Palindromes</A> and the like, you need
+non-exclusive letter variables. For example:</P>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="22%"><CODE>122..33.</CODE></TD>
+<TD WIDTH="53%">with exclusive letter variables finds</TD>
+<TD WIDTH="25%"> <PRE><CODE>annually
+root-beer</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="22%"></TD>
+<TD WIDTH="53%">with non-exclusive variables <I>also</I> finds</TD>
+<TD WIDTH="25%"> <PRE><CODE>cook-book
+offshoot
+pooh-pooh</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="22%"><CODE>123454321</CODE></TD>
+<TD WIDTH="53%">with exclusive letter variables finds</TD>
+<TD WIDTH="25%"> <PRE><CODE>Rotavator</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="22%"></TD>
+<TD WIDTH="53%">with non-exclusive variables <I>also</I> finds</TD>
+<TD WIDTH="25%"> <PRE><CODE>Malayalam</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+<H3>Ignore unused punctuation</H3>
+<BLOCKQUOTE><P>In <A HREF="punctuation_matching.htm">Punctuation Matching</A>,
+there are two ways TEA can deal with punctuation characters (eg space, hyphen
+or apostrophe) that aren't used anywhere in the pattern: </P>
+<UL>
+<LI>if you check <B>Ignore unused punctuation</B>, TEA will only match whatever
+punctuation characters you include in the pattern (and those must be matched
+exactly)</LI>
+<LI>if you uncheck <B>Ignore unused punctuation</B>, TEA will match all
+punctuation characters (and all must be matched exactly)</LI>
+</UL>
+<P>For crossword solving, it is usually best to keep <B>Ignore unused
+punctuation</B> checked: that's because the <A
+HREF="def_enumeration.htm">Enumeration</A> may tell you where some of the
+punctuation characters occur, but not all. For example, you may be able to tell
+where there are spaces, and sometimes hyphens, but not apostrophes.</P>
+<P>Here are some example patterns where this option makes a difference:</P>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="22%"><CODE>..d..-....l.</CODE></TD>
+<TD WIDTH="53%">with <B>Ignore unused punctuation</B> checked finds<BR>
+(hyphens are significant, but apostrophes are ignored)</TD>
+<TD WIDTH="25%"> <PRE><CODE>Baden-Powell
+lady's-mantle
+</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="22%"></TD>
+<TD WIDTH="53%">with <B>Ignore unused punctuation</B> unchecked finds just<BR>
+(all punctuation characters must be matched exactly)</TD>
+<TD WIDTH="25%"><PRE><CODE>Baden-Powell</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="22%"><CODE>.o.c... ....</CODE></TD>
+<TD WIDTH="53%">with <B>Ignore unused punctuation</B> checked finds<BR>
+(spaces are significant, but hyphens are ignored)</TD>
+<TD WIDTH="25%"> <PRE><CODE>concept cars
+no-score draw
+torchon lace
+touch-in goal
+</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="22%"></TD>
+<TD WIDTH="53%">with <B>Ignore unused punctuation</B> unchecked finds just<BR>
+(all punctuation characters must be matched exactly)</TD>
+<TD WIDTH="25%"> <PRE><CODE>concept cars
+torchon lace
+</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+</BODY>
+</HTML>
+

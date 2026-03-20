@@ -1,0 +1,122 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Console Version Usage</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="teacon_usage"></A>Console Application Usage
+<FONT COLOR="#FF0000">Licensed Version Only</FONT></H2>
+<P>The console version of TEA is supplied as the <CODE>TEACON</CODE>
+application. This is normally run from the MS-DOS Prompt or from within a batch
+file.</P>
+<P><CODE>TEACON</CODE> derives its default settings from those in effect for
+the Windows application. These can be overridden using command line switches: 
+</P>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="18%"><B>Option</B></TD>
+<TD WIDTH="18%"><B>Example</B></TD>
+<TD WIDTH="64%"><B>Meaning </B></TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/H:hash</TD>
+<TD WIDTH="18%">/H:[^aeiou]</TD>
+<TD WIDTH="64%">The # <A HREF="def_macro.htm">Macro</A> in patterns is replaced
+by the specified characters </TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/A:at</TD>
+<TD WIDTH="18%">/A:[aeiou]</TD>
+<TD WIDTH="64%">The @ <A HREF="def_macro.htm">Macro</A> in patterns is replaced
+by the specified characters</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/S:shortest</TD>
+<TD WIDTH="18%">/S:3</TD>
+<TD WIDTH="64%">Words no shorter than the specified value are output</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/L:longest</TD>
+<TD WIDTH="18%">/L:15</TD>
+<TD WIDTH="64%">Words no longer than the specified value are output</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/N:annotations</TD>
+<TD WIDTH="18%">/N:0</TD>
+<TD WIDTH="64%"><A HREF="def_annotation.htm">Annotations</A> are shown if the
+value is 1 and omitted if the value is 0</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/B:balances</TD>
+<TD WIDTH="18%">/B:1</TD>
+<TD WIDTH="64%"><A HREF="anagram_balances.htm">Anagram Balances</A> are shown
+if the value is 1 and omitted if the value is 0</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/X:variables</TD>
+<TD WIDTH="18%">/X:0</TD>
+<TD WIDTH="64%"><A HREF="def_letter_variable.htm">Letter Variables</A> are
+exclusive if the value is 1 and non-exclusive if the value is 0</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/U:ignored</TD>
+<TD WIDTH="18%">/U:0</TD>
+<TD WIDTH="64%">Unused punctuation is ignored in
+<A HREF="punctuation_matching.htm">Punctuation Matching</A> if the value is 1
+and significant if the value is 0</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/D:dictionaries</TD>
+<TD WIDTH="18%">/D:custom.tsd</TD>
+<TD WIDTH="64%">Overrides the list of <A
+HREF="def_tsdfile.htm">TEA&amp;Sympathy Dictionary File</A> to be searched; use
+semi-colons to separate multiple files</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%"> /O:output</TD>
+<TD WIDTH="18%">/O:2</TD>
+<TD WIDTH="64%">This value determines how matched output is presented:<BR>
+0 = exactly as in the dictionary<BR>
+1 = as ASCII<BR>
+2 = as ASCII letters<BR>
+3 = as ASCII lower case letters<BR>
+4 = as ASCII upper case letters</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="18%">/Q</TD>
+<TD WIDTH="18%">/Q</TD>
+<TD WIDTH="64%">Sets quiet mode (patterns and comments aren't echoed)</TD>
+</TR>
+</TABLE>
+<BR>
+<P>You can specify the patterns to be matched in two different ways: </P>
+<UL>
+<LI>patterns specified on the command line are tried in sequence; in this mode,
+the standard input is ignored </LI>
+<LI>if no patterns are specified on the command line, each line of standard
+input is assumed to be a pattern to be matched, except that lines starting with
+white space are echoed to standard output and otherwise ignored (they can
+therefore be used for comments)</LI>
+</UL>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="2" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="48%"><CODE>TEACON /S:4 /L:8 *J *Q</CODE></TD>
+<TD WIDTH="52%">outputs words of between 4 and 8 letters ending J, then those
+ending Q</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="48%"><CODE>TEACON /O:4 &lt; patterns.txt</CODE></TD>
+<TD WIDTH="52%">output words matching each pattern specified in
+<CODE>patterns.txt</CODE> in turn, presenting the results in upper case
+ASCII</TD>
+</TR>
+</TABLE>
+</BODY>
+</HTML>
+

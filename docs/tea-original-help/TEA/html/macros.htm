@@ -1,0 +1,54 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Macros</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="idc_quickhelp8"></A>Macros</H2>
+<P>A <A HREF="def_macro.htm">Macro</A> is an abbreviation (represented by
+either <CODE>@</CODE> or <CODE>#</CODE>) for a commonly used part of a pattern.
+By default, <CODE>@</CODE> expands to <CODE>[aeiou]</CODE> (a
+<A HREF="def_choice_list.htm">Choice List</A> indicating a vowel) and
+<CODE>#</CODE> expands to <CODE>[^aeiou]</CODE> (a
+<A HREF="def_choice_list.htm">Choice List</A> indicating a non-vowel). </P>
+<P>You can customize how these macros are expanded using the
+<A HREF="tab_options_pattern.htm">Options Pattern Tab</A>, so they can be used
+for a great variety of purposes. The examples below show how the default macro
+settings can be used to investigate words with unusual arrangements of vowels
+and consonants.</P>
+<H2>Examples</H2>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="24%"><CODE>;@@@@#</CODE></TD>
+<TD WIDTH="52%">finds words with one consonant<BR>
+and four vowels</TD>
+<TD WIDTH="24%"> <PRE><CODE>adieu
+aerie
+audio
+eerie
+queue</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="24%"><CODE>##@@##@@##</CODE></TD>
+<TD WIDTH="52%">finds words with vowels and consonants<BR>
+in pairs</TD>
+<TD WIDTH="24%"> <PRE><CODE>bloodhound
+floorboard
+sweetheart</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+<BR>
+<H2>Further Help</H2>
+<P><A HREF="tab_options_pattern.htm">Options Pattern Tab</A></P>
+</BODY>
+</HTML>
+

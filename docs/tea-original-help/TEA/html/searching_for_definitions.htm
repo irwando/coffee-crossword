@@ -1,0 +1,102 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+ 
+<HTML>
+ 
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=Windows-1252"> 
+<TITLE>Searching for Definitions</TITLE>
+</HEAD>
+
+<BODY BGCOLOR="#FFFFFF" TEXT="#000000">
+
+<H2 ALIGN="CENTER"><A NAME="help_definition_searching"></A>Searching for
+Definitions</H2>
+<P>You can search for <A HREF="def_dictionary_definition.htm">Dictionary
+Definitions</A> that contain one or more words within them. You do this by
+changing the <A HREF="def_search_mode.htm">Search Mode</A> to <B>Full Text
+Search</B>. The normal types of patterns are used in this mode, but instead of
+searching for words you are searching for words within definitions.</P>
+<P><B>Changing to Full Text Search mode</B></P>
+<BLOCKQUOTE> <P>The normal search mode is <B>Word Search</B>. To change the
+<A HREF="def_search_mode.htm">Search Mode</A> to <B>Full Text Search</B>, click
+on the down arrow to the right of the <B>Word Search</B> button and use the
+<A HREF="search_full_text.htm">Full Text Search Command</A>.</P>
+<P>If you often change between <B>Word Search</B> and <B>Full Text Search</B>
+modes, you may find it more convenient to use the keyboard shortcuts
+<B>Ctrl+W</B> (for <B>Word Search</B>) and <B>Ctrl+F</B> (for <B>Full Text
+Search</B>).</P>
+<P>Keyboard users can also change the <A HREF="def_search_mode.htm">Search
+Mode</A> by using the <B>Tab</B> key to set the focus to the <B>Word Search</B>
+button and pressing the <A HREF="def_applicationkey.htm">APPLICATION Key</A>
+which pops up the <A HREF="menu_search_context.htm">Search Context Menu</A>.
+</P>
+</BLOCKQUOTE>
+<P><B>Using Full Text Search mode</B></P>
+<BLOCKQUOTE><P>In <B>Full Text Search</B> mode, you enter patterns in the
+normal way (see <A HREF="overview_patterns.htm">Overview of Patterns</A>), but
+the patterns will be used to match words within definitions.</P>
+<P>The other important difference is in the way
+<A HREF="logical_operations.htm">Logical Operations</A> apply. In <B>Full Text
+Search</B> mode, AND, OR and NOT relate to the existence of any word that
+matches the patterns they connect, not necessarily the same word. The examples
+below will illustrate this.</P>
+<TABLE BORDER="0" COLS="3" FRAME="box" RULES="all">
+<TR VALIGN="top">
+<TD WIDTH="29%"><B><U>Full Text Search Pattern</U></B></TD>
+<TD WIDTH="38%"><B><U>Finds</U></B></TD>
+<TD WIDTH="33%"><B><U>Example Definitions Found</U></B></TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="29%"> <CODE>Buteo</CODE></TD>
+<TD WIDTH="38%">Definitions including the word <B>buteo</B></TD>
+<TD WIDTH="33%"> <PRE><CODE>buzzard
+red-shouldered hawk
+redtail
+rough-legged hawk</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="29%"><CODE>*mint</CODE></TD>
+<TD WIDTH="38%">Definitions including any words ending with <B>mint</B> such as
+<B>catmint</B> and <B>peppermint</B> as well as <B>mint</B> itself</TD>
+<TD WIDTH="33%"> <PRE><CODE>Chartreuse
+menthol
+Nepeta</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="29%"><CODE>Butterfly | moth</CODE></TD>
+<TD WIDTH="38%">Definitions including the word <B>butterfly</B> OR the word
+<B>moth</B></TD>
+<TD WIDTH="33%"> <PRE><CODE>Bombyx
+caterpillar
+fritillary</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="29%"><CODE>buteo &amp; !american</CODE></TD>
+<TD WIDTH="38%">Definitions including the word <B>buteo</B>, but NOT the word
+<B>american</B></TD>
+<TD WIDTH="33%"> <PRE><CODE>buzzard
+rough-legged hawk</CODE></PRE>
+
+</TD>
+</TR>
+<TR VALIGN="top">
+<TD WIDTH="29%"> <CODE>university &amp;<BR>
+(harvard | yale)</CODE></TD>
+<TD WIDTH="38%">Definitions including the word <B>university</B> AND either
+<B>harvard</B> OR <B>yale</B></TD>
+<TD WIDTH="33%"> <PRE><CODE>Cambridge
+New Haven</CODE></PRE>
+
+</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+</BODY>
+</HTML>
+

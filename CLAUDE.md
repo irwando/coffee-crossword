@@ -228,7 +228,7 @@ npm run dev
 - [x] Tauri scaffold created and verified building
 - [x] TailwindCSS installed
 - [ ] DICTIONARY_FORMAT.md written
-- [ ] First word list converted to open format
+- [x] First word list converted to open format
 - [ ] Template matching implemented in Rust
 - [ ] Template matching wired to React UI
 
@@ -286,6 +286,12 @@ RTF definitions: `rich|{\rtf1 \b rich\b0 ...}`
 - TSD1 files (example dicts): fully cracked, XOR 0xBD on text section from ~0x14F0
 - TSD0 files (main dictionaries): deferred — use SCOWL word lists instead for now
 
+---
+## Known word list gaps (vs original TEA)
+
+- Possessive forms (e.g. `canter's`) not included in SCOWL word lists
+- TEA's dictionaries were refined over many years — parity is a long-term goal
+- Revisit when we tackle the TSD0 reverse engineering or find a better word list
 ---
 ## Reference material
 

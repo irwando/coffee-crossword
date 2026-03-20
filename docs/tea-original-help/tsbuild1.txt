@@ -1,0 +1,11 @@
+| Example Word List 1
+aardvark
+abacus
+abalone
+abandon+ n.
+abandon+ v.
+Aberdeen+ \| City in Scotland
+Aberdeen+ \| British statesman
+C\+\++ A programming language
+C\++ A programming language unrelated to C\+\+
+Visual J\+\+

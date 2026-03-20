@@ -248,6 +248,34 @@ npm run dev
 
 ---
 
+## TSD file format (reverse engineered)
+
+The original TEA binary `.TSD` format has been reverse engineered from the
+example files. Key findings:
+
+- **Magic header**: first 4 bytes are `TSD1` (ASCII)
+- **Binary index**: first ~0x14F0 bytes contain a structured index (offsets,
+  word lengths, flags) — not yet fully decoded
+- **Text encoding**: all text content (headwords, annotations, definitions)
+  is XOR-encoded with `0xBD`
+- **Decoded content**: maps exactly to the source `.txt` format
+
+### Source .txt format (the format we use natively)
+
+Lines starting with `|` are comments/title (ignored)
+Words with annotations: `abandon+ n.`  (+ separates headword from annotation)
+Words with definitions: `defined|plain text definition`
+Spelling variants: `agonise:agonize|shared definition`
+Aliases/inflections: `bear+ n.+ n.;bears`
+Escaped metacharacters: `C\+\+` for C++
+RTF definitions: `rich|{\rtf1 \b rich\b0 ...}`
+
+### Strategy
+- Use `.txt` format as our native input — clean and fully understood
+- Write a TSD text extractor later to recover words from full TEA
+  dictionaries (XOR decode with 0xBD, parse the text section from ~0x14F0)
+
+---
 ## Reference material
 
 - Original TEA help files: `docs/tea-original-help/*.htm`

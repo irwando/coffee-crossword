@@ -1,0 +1,18 @@
+| Example Word List 2
+undefined
+defined|defined has a plain text definition
+agonise:agonize|shared definition for spelling variants agonise and agonize
+aid:help|shared definition for synonyms aid and help
+bear+ n.+ n.;bears|definition for bear annotated as noun with bears as an alias
+bear+ v.+ v.;bears:bearing:bore|definition for bear annotated as verb with inflections as aliases
+rose+ n.+ 1 n.|first definition for rose annotated as noun and with sense number in qualifier
+rose+ n.+ 2 n.|second definition for rose annotated as noun and with sense number in qualifier
+tap++ 1 v.|first definition for tap with part of speech and sense number in qualifier
+tap++ 2 v.|second definition for tap with part of speech and sense number in qualifier
+tap++ 3 n.|third definition for tap with part of speech and sense number in qualifier
+knife+ n.+ n.;knives+ n. pl.|knife definition with annotations for both headword and alias
+fork++ n.;forks|fork definition with qualifier and an alias
+;elusive| has a shareable definition not found by a Full Text Search
+rich|{\rtf1 \b rich\b0  \i adj.\i0  has a definition in Rich Text Format}
+Crossword Man|{\rtf1 RTF definition with a web page http://www.crosswordman.com/}
+TEA Support|{\rtf1 RTF definition with an e-mail address mailto:support@crosswordman.com}

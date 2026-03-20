@@ -227,6 +227,10 @@ npm run dev
 - [x] TailwindCSS installed
 - [ ] DICTIONARY_FORMAT.md written
 - [x] First word list converted to open format
+- [x] Normalization mode implemented (strips punctuation for matching)
+- [x] Variant grouping implemented in Rust engine (deduplication)
+- [x] Variant display modes (show all / hover / hidden)
+- [x] Pattern input autocorrect disabled
 - [ ] Template matching implemented in Rust
 - [ ] Template matching wired to React UI
 
@@ -248,19 +252,41 @@ npm run dev
 
 ## Normalization setting
 
-A user-facing toggle, **on by default**, that controls how words are matched
-and measured.
+A user-facing toggle, **on by default**, controls how words are matched and measured.
 
 **On (default):**
 - Strip all non-letter, non-digit characters before matching and length calculation
-- Unicode letters count (accented chars, etc.)
-- Digits count (catch-22 → catch22 = 7 chars)
-- Results show both: original form and normalized form e.g. `explorer's → explorers`
+- Unicode letters count; digits count (catch-22 → catch22 = 7 chars)
+- Results are deduplicated and grouped by canonical normalized form
+- Variants (original forms that differ from canonical) shown based on variant mode
 
 **Off:**
 - All characters count literally including apostrophes, hyphens, spaces
-- Useful for punctuation matching (a TEA feature for finding hyphenated words)
-- Results show original form only
+- No deduplication — each dictionary entry shown separately
+
+## Variant display modes (only active when normalize is ON)
+
+Three-way toggle in the UI:
+- **Show all** — canonical word with variants in parentheses: `escargots (escargot's)`
+- **On hover** — canonical word only; variants appear in tooltip on mouse hover
+- **Hidden** — canonical word only, no variants shown
+
+Variant logic (in Rust engine, not UI — so all future clients get it for free):
+- Grouping key = `normalize(word).to_lowercase()`
+- A word is a variant only if its lowercase form differs from the key
+- e.g. `Escargots` lowercases to `escargots` = key → NOT a variant
+- e.g. `escargot's` normalizes to `escargots` but original differs → IS a variant
+
+## Pattern input
+
+The search input box has autocorrect/autocapitalize/spellcheck disabled.
+This is critical — macOS autocorrect converts `...` to `…` breaking patterns.
+
+## TemplateWithAnagram length handling
+
+When pattern has a wildcard (e.g. `e*;cats`), skip the fixed-length check and
+let `matches_template` handle length. Only enforce `word_len == template_fixed_len`
+when there are no wildcards in the template part.
 ---
 
 ## TSD file format (reverse engineered)

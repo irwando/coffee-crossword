@@ -12,21 +12,21 @@ fn search(
     pattern: &str,
     min_len: usize,
     max_len: usize,
+    normalize: bool,
     dictionary: State<Dictionary>,
-) -> Result<Vec<engine::MatchResult>, String> {
+) -> Result<Vec<engine::MatchGroup>, String> {
     let words = dictionary.0.lock().map_err(|e| e.to_string())?;
 
     let parsed = engine::parse_pattern(pattern)
         .ok_or_else(|| "Empty pattern".to_string())?;
 
-    let results = engine::search(&words, &parsed, min_len, max_len);
+    let results = engine::search(&words, &parsed, min_len, max_len, normalize);
     Ok(results)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Load the dictionary at startup
-     let candidates = vec![
+    let candidates = vec![
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
@@ -38,10 +38,7 @@ pub fn run() {
 
     let dict_path = candidates
         .into_iter()
-        .find(|p| {
-            eprintln!("Checking path: {:?} exists={}", p, p.exists());
-            p.exists()
-        })
+        .find(|p| p.exists())
         .expect("Could not find dictionaries/english.txt");
 
     eprintln!("Loading dictionary from: {:?}", dict_path);

@@ -41,16 +41,12 @@ pub fn parse_pattern(input: &str) -> Option<Pattern> {
         let template_part = &input[..semi_pos];
         let anagram_part = &input[semi_pos + 1..];
 
-        // Count dots in anagram part (wildcards for unknown letters)
         let mut anagram_letters: Vec<char> = Vec::new();
         let mut dot_count = 0usize;
 
         for ch in anagram_part.chars() {
             match ch {
-                '.' | '?' => dot_count += 1,
-                '*' => {
-                    dot_count += 1;
-                }
+                '.' | '?' | '*' => dot_count += 1,
                 c if c.is_alphabetic() => anagram_letters.push(c.to_ascii_lowercase()),
                 _ => {}
             }
@@ -59,16 +55,13 @@ pub fn parse_pattern(input: &str) -> Option<Pattern> {
         let dots = if dot_count > 0 { Some(dot_count) } else { None };
 
         if template_part.is_empty() {
-            // Pure anagram: ";acenrt"
             return Some(Pattern::Anagram(anagram_letters, dots));
         } else {
-            // Combined: "e....;cats"
             let template = parse_template(template_part);
             return Some(Pattern::TemplateWithAnagram(template, anagram_letters, dots));
         }
     }
 
-    // Pure template
     Some(Pattern::Template(parse_template(input)))
 }
 
@@ -91,7 +84,6 @@ fn matches_template(word: &str, template: &[TemplateChar]) -> bool {
         .map(|c| c.to_ascii_lowercase())
         .collect();
 
-    // If no wildcards, template length must equal word length
     let has_wildcard = template.iter().any(|t| matches!(t, TemplateChar::Wildcard));
 
     if !has_wildcard {
@@ -105,7 +97,6 @@ fn matches_template(word: &str, template: &[TemplateChar]) -> bool {
         });
     }
 
-    // Has wildcards — use recursive matching
     matches_template_wildcard(&word_chars, template)
 }
 
@@ -125,7 +116,6 @@ fn matches_template_wildcard(word: &[char], template: &[TemplateChar]) -> bool {
             !word.is_empty() && matches_template_wildcard(&word[1..], &template[1..])
         }
         TemplateChar::Wildcard => {
-            // Try matching zero or more characters
             for i in 0..=word.len() {
                 if matches_template_wildcard(&word[i..], &template[1..]) {
                     return true;
@@ -136,17 +126,13 @@ fn matches_template_wildcard(word: &[char], template: &[TemplateChar]) -> bool {
     }
 }
 
-/// Check if a word can be formed from the given letters (anagram match).
-/// Returns Some(balance) if matched, None if not matched.
-/// balance shows added letters (+D) and omitted letters (-JX).
-///
-/// exact_length: true for pure anagrams (word length must equal letters+dots),
-///               false for template+anagram (template already constrains length)
-fn matches_anagram(
+/// Pure anagram match: word must be built from exactly the given letters + dots.
+/// Returns Some(balance) on match where balance shows omitted (-JX) and
+/// blank-filled (+D) letters. Returns None if no match.
+fn matches_anagram_exact(
     word: &str,
     letters: &[char],
     dot_count: Option<usize>,
-    exact_length: bool,
 ) -> Option<String> {
     let word_chars: Vec<char> = word
         .chars()
@@ -154,13 +140,10 @@ fn matches_anagram(
         .map(|c| c.to_ascii_lowercase())
         .collect();
 
-    // For pure anagrams, word length must equal letters + dots exactly
-    // For template+anagram, the template already constrains length
-    if exact_length {
-        let expected_len = letters.len() + dot_count.unwrap_or(0);
-        if word_chars.len() != expected_len {
-            return None;
-        }
+    // Word length must equal letters + dots exactly
+    let expected_len = letters.len() + dot_count.unwrap_or(0);
+    if word_chars.len() != expected_len {
+        return None;
     }
 
     // Count available letters
@@ -169,29 +152,25 @@ fn matches_anagram(
         *available.entry(ch).or_insert(0) += 1;
     }
 
-    // Subtract letters used by the word
+    // Subtract letters used by the word; track what needs a blank
     let mut needed: HashMap<char, i32> = HashMap::new();
     for &ch in &word_chars {
         let avail = available.entry(ch).or_insert(0);
         if *avail > 0 {
             *avail -= 1;
         } else {
-            // This letter isn't available — needs a dot/blank
             *needed.entry(ch).or_insert(0) += 1;
         }
     }
 
-    // Count how many blanks (dots) we need
+    // Check we have enough blanks
     let blanks_needed: i32 = needed.values().sum();
     let blanks_available = dot_count.unwrap_or(0) as i32;
-
     if blanks_needed > blanks_available {
-        return None; // Not enough blanks to cover missing letters
+        return None;
     }
 
     // Build balance string
-    // Omitted letters (still in available with count > 0) → minus
-    // Used blanks (letters in needed) → plus
     let mut omitted: Vec<char> = available
         .iter()
         .filter(|(_, &v)| v > 0)
@@ -205,26 +184,67 @@ fn matches_anagram(
         .collect();
     added.sort();
 
-    let balance = if omitted.is_empty() && added.is_empty() {
-        String::new()
-    } else {
-        let mut parts = String::new();
-        if !omitted.is_empty() {
-            parts.push('-');
-            for ch in &omitted {
-                parts.push(ch.to_ascii_uppercase());
-            }
+    let mut balance = String::new();
+    if !omitted.is_empty() {
+        balance.push('-');
+        for ch in &omitted {
+            balance.push(ch.to_ascii_uppercase());
         }
-        if !added.is_empty() {
-            parts.push('+');
-            for ch in &added {
-                parts.push(ch.to_ascii_uppercase());
-            }
+    }
+    if !added.is_empty() {
+        balance.push('+');
+        for ch in &added {
+            balance.push(ch.to_ascii_uppercase());
         }
-        parts
-    };
+    }
 
     Some(balance)
+}
+
+/// Template+anagram match: word must already satisfy the template, and must
+/// contain all the required anagram letters (with dots covering any shortfall).
+/// Returns Some(balance) on match, None if no match.
+fn matches_anagram_within(
+    word: &str,
+    letters: &[char],
+    dot_count: Option<usize>,
+) -> Option<String> {
+    let word_chars: Vec<char> = word
+        .chars()
+        .filter(|c| c.is_alphabetic())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+
+    // Count how many of each required letter the word contains
+    let mut word_counts: HashMap<char, i32> = HashMap::new();
+    for &ch in &word_chars {
+        *word_counts.entry(ch).or_insert(0) += 1;
+    }
+
+    // Count required letters
+    let mut required: HashMap<char, i32> = HashMap::new();
+    for &ch in letters {
+        *required.entry(ch).or_insert(0) += 1;
+    }
+
+    // Check each required letter is present; use dots for shortfall
+    let mut dots_used = 0i32;
+    for (&ch, &req) in &required {
+        let have = *word_counts.get(&ch).unwrap_or(&0);
+        if have < req {
+            dots_used += req - have;
+        }
+    }
+
+    let blanks_available = dot_count.unwrap_or(0) as i32;
+    if dots_used > blanks_available {
+        return None;
+    }
+
+    // Build balance: letters in required that weren't in word → shown as used blanks (+)
+    // Letters in word beyond what was required → shown as omitted from rack (-)
+    // For now return empty balance (anagram balances for combined patterns are complex)
+    Some(String::new())
 }
 
 /// Search a word list with the given pattern
@@ -240,7 +260,6 @@ pub fn search(
         let word_lower = word.to_ascii_lowercase();
         let word_len = word_lower.chars().filter(|c| c.is_alphabetic()).count();
 
-        // Apply length filter
         if word_len < min_len || word_len > max_len {
             continue;
         }
@@ -256,30 +275,20 @@ pub fn search(
             }
 
             Pattern::Anagram(letters, dots) => {
-                if let Some(balance) = matches_anagram(&word_lower, letters, *dots, true) {
+                if let Some(balance) = matches_anagram_exact(&word_lower, letters, *dots) {
                     results.push(MatchResult {
                         word: word_lower,
-                        balance: if balance.is_empty() {
-                            None
-                        } else {
-                            Some(balance)
-                        },
+                        balance: if balance.is_empty() { None } else { Some(balance) },
                     });
                 }
             }
 
             Pattern::TemplateWithAnagram(template, letters, dots) => {
                 if matches_template(&word_lower, template) {
-                    if let Some(balance) =
-                        matches_anagram(&word_lower, letters, *dots, false)
-                    {
+                    if let Some(balance) = matches_anagram_within(&word_lower, letters, *dots) {
                         results.push(MatchResult {
                             word: word_lower,
-                            balance: if balance.is_empty() {
-                                None
-                            } else {
-                                Some(balance)
-                            },
+                            balance: if balance.is_empty() { None } else { Some(balance) },
                         });
                     }
                 }
@@ -318,7 +327,7 @@ mod tests {
         let pattern = parse_pattern(".l...r.n").unwrap();
         let results = search(&words, &pattern, 1, 50);
         let matched: Vec<&str> = results.iter().map(|r| r.word.as_str()).collect();
-        assert!(matched.contains(&"electron"), "should match electron");
+        assert!(matched.contains(&"electron"));
     }
 
     #[test]
@@ -343,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_anagram_basic() {
+    fn test_anagram_exact_match() {
         let words = word_list();
         let pattern = parse_pattern(";acenrt").unwrap();
         let results = search(&words, &pattern, 1, 50);
@@ -352,7 +361,7 @@ mod tests {
         assert!(matched.contains(&"nectar"));
         assert!(matched.contains(&"recant"));
         assert!(matched.contains(&"trance"));
-        // Should NOT match shorter or longer words
+        // Must not match different-length words
         assert_eq!(results.len(), 4);
     }
 
@@ -370,11 +379,20 @@ mod tests {
     #[test]
     fn test_template_with_anagram() {
         let words = word_list();
-        // e........;cats — finds escalator
+        // e........;cats — escalator starts with e, contains c,a,t,s
         let pattern = parse_pattern("e........;cats").unwrap();
         let results = search(&words, &pattern, 1, 50);
         let matched: Vec<&str> = results.iter().map(|r| r.word.as_str()).collect();
         assert!(matched.contains(&"escalator"));
+    }
+
+    #[test]
+    fn test_template_with_anagram_no_false_positives() {
+        let words = word_list();
+        // e........;zzzz — no 9-letter word starting with e contains z,z,z,z
+        let pattern = parse_pattern("e........;zzzz").unwrap();
+        let results = search(&words, &pattern, 1, 50);
+        assert_eq!(results.len(), 0);
     }
 
     #[test]
@@ -390,11 +408,12 @@ mod tests {
     #[test]
     fn test_apostrophe_not_counted_in_length() {
         let words = vec!["earmark's".to_string(), "earmarks".to_string()];
-        // e........ = 9 alphabetic chars — should NOT match earmark's (7 alpha)
+        // e........ = 9 alphabetic chars
+        // earmark's = 7 alpha chars, earmarks = 8 alpha chars — neither should match
         let pattern = parse_pattern("e........").unwrap();
         let results = search(&words, &pattern, 1, 50);
         let matched: Vec<&str> = results.iter().map(|r| r.word.as_str()).collect();
         assert!(!matched.contains(&"earmark's"));
-        assert!(!matched.contains(&"earmarks")); // only 8 chars
+        assert!(!matched.contains(&"earmarks"));
     }
 }

@@ -219,11 +219,14 @@ npm run dev
 
 > Update this section as the project progresses.
 
+## Current status
+
 - [x] Architecture designed
 - [x] Stack selected (Tauri + React + Rust)
-- [ ] Prerequisites installed (Node, Rust, Xcode tools)
-- [ ] GitHub repo created
-- [ ] Tauri scaffold created and verified building
+- [x] Prerequisites installed (Node, Rust, Xcode tools)
+- [x] GitHub repo created (https://github.com/irwando/coffee-crossword)
+- [x] Tauri scaffold created and verified building
+- [x] TailwindCSS installed
 - [ ] DICTIONARY_FORMAT.md written
 - [ ] First word list converted to open format
 - [ ] Template matching implemented in Rust

@@ -219,8 +219,6 @@ npm run dev
 
 > Update this section as the project progresses.
 
-## Current status
-
 - [x] Architecture designed
 - [x] Stack selected (Tauri + React + Rust)
 - [x] Prerequisites installed (Node, Rust, Xcode tools)
@@ -246,6 +244,23 @@ npm run dev
 | 2026-03 | Start with Mac + browser, defer mobile | Reduces scope; mobile can reuse engine later |
 | 2026-03 | React over Flutter for UI | Simpler stack for PM-led development; web skills transfer |
 
+---
+
+## Normalization setting
+
+A user-facing toggle, **on by default**, that controls how words are matched
+and measured.
+
+**On (default):**
+- Strip all non-letter, non-digit characters before matching and length calculation
+- Unicode letters count (accented chars, etc.)
+- Digits count (catch-22 → catch22 = 7 chars)
+- Results show both: original form and normalized form e.g. `explorer's → explorers`
+
+**Off:**
+- All characters count literally including apostrophes, hyphens, spaces
+- Useful for punctuation matching (a TEA feature for finding hyphenated words)
+- Results show original form only
 ---
 
 ## TSD file format (reverse engineered)

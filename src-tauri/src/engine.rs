@@ -284,15 +284,20 @@ pub fn search(
             }
 
             Pattern::TemplateWithAnagram(template, letters, dots) => {
-                if matches_template(&word_lower, template) {
-                    if let Some(balance) = matches_anagram_within(&word_lower, letters, *dots) {
-                        results.push(MatchResult {
-                            word: word_lower,
-                            balance: if balance.is_empty() { None } else { Some(balance) },
-                        });
-                    }
+            // Template length defines required word length (excluding wildcards)
+            let template_len: usize = template.iter().filter(|t| !matches!(t, TemplateChar::Wildcard)).count();
+            if word_len != template_len {
+                continue;
+            }
+            if matches_template(&word_lower, template) {
+                if let Some(balance) = matches_anagram_within(&word_lower, letters, *dots) {
+                    results.push(MatchResult {
+                        word: word_lower,
+                        balance: if balance.is_empty() { None } else { Some(balance) },
+                    });
                 }
             }
+        }
         }
     }
 

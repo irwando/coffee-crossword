@@ -275,6 +275,17 @@ RTF definitions: `rich|{\rtf1 \b rich\b0 ...}`
 - Write a TSD text extractor later to recover words from full TEA
   dictionaries (XOR decode with 0xBD, parse the text section from ~0x14F0)
 
+### TSD0 format (Core English and other main dictionaries)
+- Different from TSD1 — uses a compressed DAWG (Directed Acyclic Word Graph)
+- Words are NOT stored as plain strings — no simple XOR decode possible
+- Requires proper reverse engineering — deferred to later
+- File header contains 24 word-length bucket entries (3-byte offsets + flag byte)
+- The large 0x80-filled regions are likely the DAWG node tables
+
+### Strategy update
+- TSD1 files (example dicts): fully cracked, XOR 0xBD on text section from ~0x14F0
+- TSD0 files (main dictionaries): deferred — use SCOWL word lists instead for now
+
 ---
 ## Reference material
 

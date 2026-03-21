@@ -548,23 +548,25 @@ function ListView({ lengths, grouped, normalize, variantMode }: ViewProps) {
           <div key={len} className="mb-2 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <button
               onClick={() => toggle(len)}
-              className="w-full flex items-center justify-between px-3 py-2 text-left transition-colors"
-              style={{ background: isCollapsed ? undefined : "#eef2ff" }}
+              className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${
+                isCollapsed
+                  ? "bg-gray-50 dark:bg-gray-800"
+                  : "bg-gray-100 dark:bg-gray-700"
+              }`}
             >
               <div className="flex items-center gap-2">
                 <span
-                  className="text-xs transition-transform"
+                  className={`text-xs transition-transform ${!isCollapsed ? "text-gray-500 dark:text-gray-300" : "text-gray-400 dark:text-gray-500"}`}
                   style={{
                     display: "inline-block",
                     transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-                    color: isCollapsed ? "#9ca3af" : "#6366f1",
                   }}
                 >▾</span>
-                <span className={`text-xs font-semibold ${isCollapsed ? "text-gray-500 dark:text-gray-400" : "text-indigo-700"}`}>
+                <span className={`text-xs font-semibold ${isCollapsed ? "text-gray-500 dark:text-gray-400" : "text-gray-700 dark:text-gray-200"}`}>
                   {len} letter{len === 1 ? "" : "s"}
                 </span>
               </div>
-              <span className="text-xs text-gray-400 bg-white dark:bg-gray-800 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-600">
+              <span className="text-xs text-gray-400 dark:text-gray-400 bg-gray-50 dark:bg-gray-600 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-500">
                 {grouped[len].length} match{grouped[len].length === 1 ? "" : "es"}
               </span>
             </button>

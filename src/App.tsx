@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { listen } from "@tauri-apps/api/event";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 interface MatchGroup {
   normalized: string;
@@ -18,6 +19,12 @@ interface SearchResponse {
 interface HistoryEntry {
   pattern: string;
   matchCount: number;
+}
+
+interface ContextMenu {
+  x: number;
+  y: number;
+  words: string[];
 }
 
 type VariantMode = "show" | "hide";
@@ -46,7 +53,6 @@ let systemMQ: MediaQueryList | null = null;
 
 function applyTheme(mode: AppearanceMode) {
   const root = document.documentElement;
-  // Clean up any previous system listener
   if (systemMQ && systemDarkListener) {
     systemMQ.removeEventListener("change", systemDarkListener);
     systemDarkListener = null;
@@ -59,7 +65,6 @@ function applyTheme(mode: AppearanceMode) {
     root.classList.remove("light");
     root.classList.add("dark");
   } else {
-    // System — match current preference and track changes
     systemMQ = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = (dark: boolean) => {
       root.classList.toggle("dark", dark);
@@ -120,15 +125,16 @@ function explainPattern(raw: string): string {
 
   if (!tmpl) {
     let s = letters ? `Anagrams of "${letters}"` : "Anagram search";
-    if (dots === 1) s += " using 1 additional letter";
-    else if (dots > 1) s += ` using ${dots} additional letters`;
     if (hasWild) s += " (any number of extra letters)";
+    else if (dots === 1) s += " using 1 additional letter";
+    else if (dots > 1) s += ` using ${dots} additional letters`;
     return s;
   }
 
   let s = explainTemplate(tmpl);
   if (letters) s += `, containing the letters "${letters}"`;
-  if (dots === 1) s += " plus 1 free letter";
+  if (hasWild) s += " (any number of extra letters)";
+  else if (dots === 1) s += " plus 1 free letter";
   else if (dots > 1) s += ` plus ${dots} free letters`;
   return s;
 }
@@ -144,6 +150,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
 
   const [normalize, setNormalize] = useState(DEFAULTS.normalize);
   const [variantMode, setVariantMode] = useState<VariantMode>(DEFAULTS.variantMode);
@@ -160,12 +168,14 @@ export default function App() {
   const settingsLoaded = useRef(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
-  // Apply theme whenever appearance changes
+  // Flat list of all result words in display order (for drag/range selection)
+  const allWords = results.map((r) => r.normalized);
+
   useEffect(() => { applyTheme(appearance); }, [appearance]);
 
-  // Load all settings on startup
+  // Load settings
   useEffect(() => {
-    load(STORE_FILE, { autoSave: true }).then((store) => {
+    load(STORE_FILE, { autoSave: true, defaults: {} }).then((store) => {
       storeRef.current = store;
       Promise.all([
         store.get<boolean>("normalize"),
@@ -194,7 +204,7 @@ export default function App() {
     });
   }, []);
 
-  // Persist settings on change
+  // Persist settings
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
     const s = storeRef.current;
@@ -216,12 +226,11 @@ export default function App() {
     storeRef.current.set("history", history);
   }, [history]);
 
-  // Listen for native menu events 
+  // Menu events
   useEffect(() => {
     const unlisten: Array<() => void> = [];
 
     listen<string>("menu:toggle", (event) => {
-      console.log("menu:toggle received", event.payload);
       const panel = event.payload;
       if (panel === "reference") setShowReference((v) => !v);
       else if (panel === "description") setShowDescription((v) => !v);
@@ -232,6 +241,19 @@ export default function App() {
       const mode = event.payload as AppearanceMode;
       setAppearance(mode);
       applyTheme(mode);
+    }).then((u) => unlisten.push(u));
+
+    listen<string>("menu:reset_layout", () => {
+      setShowReference(DEFAULTS.showReference);
+      setShowDescription(DEFAULTS.showDescription);
+      setShowOptions(DEFAULTS.showOptions);
+      setNormalize(DEFAULTS.normalize);
+      setVariantMode(DEFAULTS.variantMode);
+      setViewMode(DEFAULTS.viewMode);
+      setMinLen(DEFAULTS.minLen);
+      setMaxLen(DEFAULTS.maxLen);
+      setAppearance(DEFAULTS.appearance);
+      applyTheme(DEFAULTS.appearance);
     }).then((u) => unlisten.push(u));
 
     return () => unlisten.forEach((u) => u());
@@ -247,6 +269,14 @@ export default function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // Close context menu on click outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = () => setContextMenu(null);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [contextMenu]);
 
   // Debounced pattern explanation
   useEffect(() => {
@@ -265,6 +295,7 @@ export default function App() {
     setLoading(true);
     setStatus("Searching...");
     setShowHistory(false);
+    setSelectedWords(new Set());
     try {
       const response = await invoke<SearchResponse>("search", {
         pattern: trimmed, minLen, maxLen, normalize,
@@ -293,9 +324,77 @@ export default function App() {
   const selectHistory = (entry: HistoryEntry) => {
     setPattern(entry.pattern);
     setResults([]);
+    setSelectedWords(new Set());
     setStatus("Enter a pattern and press Search");
     setShowHistory(false);
   };
+
+  // ── Selection handlers ───────────────────────────────────────────────────
+
+  const handleWordClick = useCallback((
+    word: string,
+    e: React.MouseEvent
+  ) => {
+    e.preventDefault();
+    setContextMenu(null);
+
+    if (e.metaKey || e.ctrlKey) {
+      // Cmd/Ctrl+click: toggle this word in selection
+      setSelectedWords((prev) => {
+        const next = new Set(prev);
+        if (next.has(word)) next.delete(word);
+        else next.add(word);
+        return next;
+      });
+    } else if (e.shiftKey && selectedWords.size > 0) {
+      // Shift+click: range select from last selected to this word
+      const lastSelected = [...selectedWords].pop()!;
+      const fromIdx = allWords.indexOf(lastSelected);
+      const toIdx = allWords.indexOf(word);
+      if (fromIdx !== -1 && toIdx !== -1) {
+        const [start, end] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+        setSelectedWords(new Set(allWords.slice(start, end + 1)));
+      }
+    } else {
+      // Plain click: select only this word
+      setSelectedWords(new Set([word]));
+    }
+  }, [allWords, selectedWords]);
+
+  const handleWordRightClick = useCallback((
+    word: string,
+    e: React.MouseEvent
+  ) => {
+    e.preventDefault();
+    // If right-clicking a word not in selection, select just that word
+    setSelectedWords((prev) => {
+      if (!prev.has(word)) return new Set([word]);
+      return prev;
+    });
+    setContextMenu({ x: e.clientX, y: e.clientY, words: [] });
+    // words will be read from selectedWords at render time
+  }, []);
+
+  // ── Context menu actions ─────────────────────────────────────────────────
+
+  const handleCopy = useCallback(async () => {
+    const text = [...selectedWords].join("\n");
+    try {
+      await writeText(text);
+    } catch {
+      // Fallback to navigator clipboard
+      await navigator.clipboard.writeText(text);
+    }
+    setContextMenu(null);
+  }, [selectedWords]);
+
+  const handleSearchFor = useCallback((word: string) => {
+    setPattern(word);
+    setResults([]);
+    setSelectedWords(new Set());
+    setStatus("Enter a pattern and press Search");
+    setContextMenu(null);
+  }, []);
 
   const grouped = results.reduce<Record<number, MatchGroup[]>>((acc, r) => {
     const len = r.normalized.length;
@@ -305,15 +404,17 @@ export default function App() {
   }, {});
   const lengths = Object.keys(grouped).map(Number).sort((a, b) => a - b);
 
+  const singleSelected = selectedWords.size === 1 ? [...selectedWords][0] : null;
+
   return (
     <div
       style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}
       className="bg-white dark:bg-gray-900"
+      onClick={() => setContextMenu(null)}
     >
       {/* ── STATIC HEADER ── */}
       <div className="border-b border-gray-200 dark:border-gray-700 px-5 pt-3 pb-0 flex-shrink-0 bg-white dark:bg-gray-900">
 
-        {/* Pattern reference — above search box */}
         {showReference && (
           <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">
             <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
@@ -352,7 +453,6 @@ export default function App() {
               >▾</button>
             )}
 
-            {/* History dropdown */}
             {showHistory && history.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-750 border-b border-gray-100 dark:border-gray-700">
@@ -387,8 +487,8 @@ export default function App() {
           </button>
         </div>
 
-        {/* Pattern description */}
-       {showDescription && (
+        {/* Pattern description — always shown */}
+        {showDescription && (
           <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-1.5 mb-1.5 leading-relaxed">
             {explanation || (
               <span className="text-gray-400 dark:text-gray-500 italic">Enter a pattern to see a description</span>
@@ -491,12 +591,119 @@ export default function App() {
           <p className="text-sm text-gray-400 dark:text-gray-500">{status}</p>
         )}
         {results.length > 0 && viewMode === "grid" && (
-          <GridView lengths={lengths} grouped={grouped} normalize={normalize} variantMode={variantMode} />
+          <GridView
+            lengths={lengths}
+            grouped={grouped}
+            normalize={normalize}
+            variantMode={variantMode}
+            selectedWords={selectedWords}
+            onWordClick={handleWordClick}
+            onWordRightClick={handleWordRightClick}
+          />
         )}
         {results.length > 0 && viewMode === "list" && (
-          <ListView lengths={lengths} grouped={grouped} normalize={normalize} variantMode={variantMode} />
+          <ListView
+            lengths={lengths}
+            grouped={grouped}
+            normalize={normalize}
+            variantMode={variantMode}
+            selectedWords={selectedWords}
+            onWordClick={handleWordClick}
+            onWordRightClick={handleWordRightClick}
+          />
         )}
       </div>
+
+      {/* ── STATUS BAR ── */}
+      <div className="flex-shrink-0 px-5 py-1.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center">
+        <span className="text-xs text-gray-400 dark:text-gray-500">
+          {selectedWords.size > 0
+            ? `${selectedWords.size} word${selectedWords.size === 1 ? "" : "s"} selected`
+            : results.length > 0
+            ? `${results.length} words`
+            : ""}
+        </span>
+      </div>
+
+      {/* ── CONTEXT MENU ── */}
+      {contextMenu && (
+        <ContextMenuPopup
+          x={contextMenu.x}
+          y={contextMenu.y}
+          selectedWords={selectedWords}
+          singleWord={singleSelected}
+          onCopy={handleCopy}
+          onSearchFor={handleSearchFor}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Context menu popup ────────────────────────────────────────────────────────
+
+interface ContextMenuPopupProps {
+  x: number;
+  y: number;
+  selectedWords: Set<string>;
+  singleWord: string | null;
+  onCopy: () => void;
+  onSearchFor: (word: string) => void;
+  onClose: () => void;
+}
+
+function ContextMenuPopup({ x, y, selectedWords, singleWord, onCopy, onSearchFor, onClose }: ContextMenuPopupProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Adjust position if menu would go off screen
+  const style: React.CSSProperties = {
+    position: "fixed",
+    left: x,
+    top: y,
+    zIndex: 1000,
+  };
+
+  const MenuItem = ({
+  label,
+  onClick,
+  disabled = false,
+}: {
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) => (
+  <button
+    onClick={disabled ? undefined : onClick}
+    className={`w-full text-left px-4 py-1.5 text-sm transition-colors ${
+      disabled
+        ? "context-menu-disabled cursor-default"
+        : "text-gray-700 dark:text-gray-200 hover:bg-blue-500 hover:text-white cursor-pointer"
+    }`}
+  >
+    {label}
+  </button>
+);
+
+  return (
+    <div
+      ref={menuRef}
+      style={style}
+      className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-48"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <MenuItem label="Copy" onClick={onCopy} />
+      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
+      <MenuItem
+        label="Search for this word"
+        onClick={singleWord ? () => onSearchFor(singleWord) : undefined}
+        disabled={!singleWord}
+      />
+      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
+      <MenuItem label="Look up definition" disabled />
+      <MenuItem label="Open in external dictionary" disabled />
+      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
+      <MenuItem label="Copy to word list" disabled />
     </div>
   );
 }
@@ -508,9 +715,12 @@ interface ViewProps {
   grouped: Record<number, MatchGroup[]>;
   normalize: boolean;
   variantMode: VariantMode;
+  selectedWords: Set<string>;
+  onWordClick: (word: string, e: React.MouseEvent) => void;
+  onWordRightClick: (word: string, e: React.MouseEvent) => void;
 }
 
-function GridView({ lengths, grouped, normalize, variantMode }: ViewProps) {
+function GridView({ lengths, grouped, normalize, variantMode, selectedWords, onWordClick, onWordRightClick }: ViewProps) {
   return (
     <>
       {lengths.map((len) => (
@@ -520,11 +730,24 @@ function GridView({ lengths, grouped, normalize, variantMode }: ViewProps) {
           </div>
           <div className="flex flex-wrap gap-2">
             {grouped[len].map((r) => (
-              <WordChip
+              <div
                 key={r.normalized}
-                group={r}
-                showVariants={normalize && variantMode === "show"}
-              />
+                onClick={(e) => onWordClick(r.normalized, e)}
+                onContextMenu={(e) => onWordRightClick(r.normalized, e)}
+                className={`flex items-baseline gap-1 border rounded px-3 py-1.5 cursor-pointer select-none transition-colors ${
+                  selectedWords.has(r.normalized)
+                    ? "bg-blue-50 dark:bg-blue-900 border-blue-300 dark:border-blue-700"
+                    : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
+                }`}
+              >
+                <span className="font-mono text-sm text-gray-800 dark:text-gray-200">{r.normalized}</span>
+                {normalize && variantMode === "show" && r.variants.length > 0 && (
+                  <span className="text-xs text-gray-400">({r.variants.join(", ")})</span>
+                )}
+                {r.balance && (
+                  <span className="font-mono text-xs text-blue-500">{r.balance}</span>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -535,7 +758,7 @@ function GridView({ lengths, grouped, normalize, variantMode }: ViewProps) {
 
 // ── List view ─────────────────────────────────────────────────────────────────
 
-function ListView({ lengths, grouped, normalize, variantMode }: ViewProps) {
+function ListView({ lengths, grouped, normalize, variantMode, selectedWords, onWordClick, onWordRightClick }: ViewProps) {
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
   const toggle = (len: number) =>
     setCollapsed((prev) => ({ ...prev, [len]: !prev[len] }));
@@ -576,7 +799,13 @@ function ListView({ lengths, grouped, normalize, variantMode }: ViewProps) {
                 {grouped[len].map((r) => (
                   <div
                     key={r.normalized}
-                    className="flex items-baseline justify-between px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    onClick={(e) => onWordClick(r.normalized, e)}
+                    onContextMenu={(e) => onWordRightClick(r.normalized, e)}
+                    className={`flex items-baseline justify-between px-3 py-1.5 cursor-pointer select-none transition-colors ${
+                      selectedWords.has(r.normalized)
+                        ? "bg-blue-50 dark:bg-blue-900"
+                        : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                    }`}
                   >
                     <span className="font-mono text-sm text-gray-800 dark:text-gray-200">{r.normalized}</span>
                     <div className="flex items-baseline gap-2">
@@ -595,25 +824,5 @@ function ListView({ lengths, grouped, normalize, variantMode }: ViewProps) {
         );
       })}
     </>
-  );
-}
-
-// ── WordChip ──────────────────────────────────────────────────────────────────
-
-function WordChip({ group, showVariants }: { group: MatchGroup; showVariants: boolean }) {
-  return (
-    <div className={`flex items-baseline gap-1 bg-white dark:bg-gray-800 border rounded px-3 py-1.5 ${
-      showVariants && group.variants.length > 0
-        ? "border-blue-200 dark:border-blue-800"
-        : "border-gray-200 dark:border-gray-700"
-    }`}>
-      <span className="font-mono text-sm text-gray-800 dark:text-gray-200">{group.normalized}</span>
-      {showVariants && group.variants.length > 0 && (
-        <span className="text-xs text-gray-400">({group.variants.join(", ")})</span>
-      )}
-      {group.balance && (
-        <span className="font-mono text-xs text-blue-500">{group.balance}</span>
-      )}
-    </div>
   );
 }

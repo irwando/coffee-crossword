@@ -37,3 +37,10 @@
 .dark .border-blue-500 { border-color: #636366; }
 .dark .text-blue-500 { color: #8e8e93; }
 .dark .focus\:ring-2:focus { box-shadow: 0 0 0 2px #48484a; }
+/* Context menu disabled items — must not be overridden by dark mode remaps */
+.context-menu-disabled {
+  color: #c7c7cc;
+}
+.dark .context-menu-disabled {
+  color: #48484a;
+}

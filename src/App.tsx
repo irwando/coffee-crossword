@@ -388,13 +388,6 @@ export default function App() {
     setContextMenu(null);
   }, [selectedWords]);
 
-  const handleSearchFor = useCallback((word: string) => {
-    setPattern(word);
-    setResults([]);
-    setSelectedWords(new Set());
-    setStatus("Enter a pattern and press Search");
-    setContextMenu(null);
-  }, []);
 
   const grouped = results.reduce<Record<number, MatchGroup[]>>((acc, r) => {
     const len = r.normalized.length;
@@ -633,7 +626,6 @@ export default function App() {
           selectedWords={selectedWords}
           singleWord={singleSelected}
           onCopy={handleCopy}
-          onSearchFor={handleSearchFor}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -653,7 +645,7 @@ interface ContextMenuPopupProps {
   onClose: () => void;
 }
 
-function ContextMenuPopup({ x, y, selectedWords, singleWord, onCopy, onSearchFor, onClose }: ContextMenuPopupProps) {
+function ContextMenuPopup({ x, y, selectedWords, singleWord, onCopy, onClose }: ContextMenuPopupProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Adjust position if menu would go off screen
@@ -693,12 +685,6 @@ function ContextMenuPopup({ x, y, selectedWords, singleWord, onCopy, onSearchFor
       onMouseDown={(e) => e.stopPropagation()}
     >
       <MenuItem label="Copy" onClick={onCopy} />
-      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
-      <MenuItem
-        label="Search for this word"
-        onClick={singleWord ? () => onSearchFor(singleWord) : undefined}
-        disabled={!singleWord}
-      />
       <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
       <MenuItem label="Look up definition" disabled />
       <MenuItem label="Open in external dictionary" disabled />

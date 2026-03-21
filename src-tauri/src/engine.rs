@@ -3,11 +3,9 @@ use std::collections::HashMap;
 /// A parsed pattern ready for matching
 #[derive(Debug)]
 pub enum Pattern {
-    /// Pure template: e.g. ".l...r.n"
     Template(Vec<TemplateChar>),
-    /// Pure anagram: e.g. ";acenrt"
-    Anagram(Vec<char>, Option<usize>),
-    /// Template + anagram combined: e.g. "e....;cats"
+    /// letters, dot_count, has_wildcard
+    Anagram(Vec<char>, Option<usize>, bool),
     TemplateWithAnagram(Vec<TemplateChar>, Vec<char>, Option<usize>),
 }
 
@@ -61,10 +59,12 @@ pub fn parse_pattern(input: &str) -> Option<Pattern> {
 
         let mut anagram_letters: Vec<char> = Vec::new();
         let mut dot_count = 0usize;
+        let mut has_wildcard = false;
 
         for ch in anagram_part.chars() {
             match ch {
-                '.' | '?' | '*' => dot_count += 1,
+                '*' => has_wildcard = true,
+                '.' | '?' => dot_count += 1,
                 c if c.is_alphabetic() => anagram_letters.push(c.to_ascii_lowercase()),
                 _ => {}
             }
@@ -73,7 +73,7 @@ pub fn parse_pattern(input: &str) -> Option<Pattern> {
         let dots = if dot_count > 0 { Some(dot_count) } else { None };
 
         if template_part.is_empty() {
-            return Some(Pattern::Anagram(anagram_letters, dots));
+            return Some(Pattern::Anagram(anagram_letters, dots, has_wildcard));
         } else {
             let template = parse_template(template_part);
             return Some(Pattern::TemplateWithAnagram(template, anagram_letters, dots));
@@ -147,12 +147,16 @@ fn matches_anagram_exact(
     word: &str,
     letters: &[char],
     dot_count: Option<usize>,
+    has_wildcard: bool,
 ) -> Option<String> {
     let word_chars: Vec<char> = word.chars().collect();
 
-    let expected_len = letters.len() + dot_count.unwrap_or(0);
-    if word_chars.len() != expected_len {
-        return None;
+    // With wildcard, skip length check — any number of extra letters allowed
+    if !has_wildcard {
+        let expected_len = letters.len() + dot_count.unwrap_or(0);
+        if word_chars.len() != expected_len {
+            return None;
+        }
     }
 
     let mut available: HashMap<char, i32> = HashMap::new();
@@ -170,10 +174,20 @@ fn matches_anagram_exact(
         }
     }
 
-    let blanks_needed: i32 = needed.values().sum();
-    let blanks_available = dot_count.unwrap_or(0) as i32;
-    if blanks_needed > blanks_available {
+    // Check all required letters were found in the word
+    let missing_required: i32 = available.values().filter(|&&v| v > 0).map(|&v| v).sum();
+    if missing_required > 0 {
         return None;
+    }
+
+    // Extra letters (in word but not in required set)
+    let extra_count: i32 = needed.values().sum();
+
+    if !has_wildcard {
+        let blanks_available = dot_count.unwrap_or(0) as i32;
+        if extra_count > blanks_available {
+            return None;
+        }
     }
 
     let mut omitted: Vec<char> = available
@@ -285,8 +299,8 @@ pub fn search(
                 }
             }
 
-            Pattern::Anagram(letters, dots) => {
-                matches_anagram_exact(&matched_form, letters, *dots)
+            Pattern::Anagram(letters, dots, has_wildcard) => {
+                matches_anagram_exact(&matched_form, letters, *dots, *has_wildcard)
             }
 
             Pattern::TemplateWithAnagram(template, letters, dots) => {
@@ -515,5 +529,19 @@ mod tests {
         for i in 1..results.len() {
             assert!(results[i].normalized.len() >= results[i - 1].normalized.len());
         }
+    }
+
+    #[test]
+    fn test_anagram_wildcard_unlimited() {
+        let words = word_list();
+        let pattern = parse_pattern(";cats*").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        let keys: Vec<&str> = results.iter().map(|r| r.normalized.as_str()).collect();
+        // escalator contains c, a, t, s plus extra letters
+        assert!(keys.contains(&"escalator"), "should find escalator");
+        // escapists contains c, a, t, s plus extra letters  
+        assert!(keys.contains(&"escapists"), "should find escapists");
+        // should find more than just exact anagrams
+        assert!(results.len() >=2, "expected many matches, got {}", results.len());
     }
 }

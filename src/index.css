@@ -1,2 +1,39 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* Apple-style neutral dark mode — no blue tint */
+.dark body {
+  background-color: #1c1c1e;
+  color: #f5f5f7;
+}
+.dark .bg-white { background-color: #1c1c1e; }
+.dark .bg-gray-50 { background-color: #2c2c2e; }
+.dark .bg-gray-100 { background-color: #3a3a3c; }
+.dark .bg-gray-700 { background-color: #3a3a3c; }
+.dark .bg-gray-800 { background-color: #2c2c2e; }
+.dark .bg-gray-900 { background-color: #1c1c1e; }
+.dark .text-gray-800 { color: #f5f5f7; }
+.dark .text-gray-700 { color: #e5e5ea; }
+.dark .text-gray-600 { color: #aeaeb2; }
+.dark .text-gray-500 { color: #8e8e93; }
+.dark .text-gray-400 { color: #636366; }
+.dark .text-gray-300 { color: #c7c7cc; }
+.dark .text-gray-200 { color: #e5e5ea; }
+.dark .text-gray-100 { color: #f5f5f7; }
+.dark .border-gray-200 { border-color: #3a3a3c; }
+.dark .border-gray-700 { border-color: #48484a; }
+.dark .border-gray-600 { border-color: #48484a; }
+.dark .border-gray-500 { border-color: #636366; }
+.dark .divide-gray-50 > * { border-color: #2c2c2e; }
+.dark .divide-gray-800 > * { border-color: #3a3a3c; }
+.dark .placeholder-gray-500::placeholder { color: #636366; }
+.dark .hover\:bg-gray-50:hover { background-color: #2c2c2e; }
+.dark .hover\:bg-gray-800:hover { background-color: #3a3a3c; }
+/* Neutral interactive elements in dark mode */
+.dark .bg-blue-500 { background-color: #48484a; }
+.dark .hover\:bg-blue-600:hover { background-color: #636366; }
+.dark .bg-blue-500.text-white { color: #f5f5f7; }
+.dark .focus\:ring-blue-400:focus { --tw-ring-color: #636366; }
+.dark .border-blue-500 { border-color: #636366; }
+.dark .text-blue-500 { color: #8e8e93; }
+.dark .focus\:ring-2:focus { box-shadow: 0 0 0 2px #48484a; }

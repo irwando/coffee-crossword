@@ -181,7 +181,9 @@ engine/
 ├── matcher.rs    ← matches_template, matches_anagram_*, eval_expr, MatchContext
 ├── normalize.rs  ← normalize(), matching_form()
 ├── grouping.rs   ← RawMatch, grouping/dedup logic, MatchGroup construction
-└── describe.rs   ← describe_pattern, describe_simple, helper functions
+├── describe.rs   ← describe_pattern, describe_simple, helper functions
+├── tests.rs      ← all tests, explicit imports
+└── test_utils.rs ← shared test helpers (word_list, keys); only compiled in test builds
 ```
 
 This split is committed — do it before starting Phase 3 work.

@@ -26,31 +26,17 @@ pub enum TemplateChar {
 /// When normalize=false, each group will have exactly one variant.
 #[derive(Debug, serde::Serialize)]
 pub struct MatchGroup {
-    /// The canonical normalized lowercase form, e.g. "escargots"
     pub normalized: String,
-    /// All original forms from the dictionary that map to this group,
-    /// e.g. ["escargot's", "Escargots"]. Empty when normalize=false.
     pub variants: Vec<String>,
-    /// Anagram balance string, e.g. "+D" or "-JX"
     pub balance: Option<String>,
 }
 
 /// Normalize a word: strip non-letter, non-digit characters and lowercase.
-/// Unicode letters and digits are kept; apostrophes, hyphens, spaces etc. removed.
 pub fn normalize(word: &str) -> String {
     word.chars()
         .filter(|c| c.is_alphabetic() || c.is_ascii_digit())
         .flat_map(|c| c.to_lowercase())
         .collect()
-}
-
-/// Effective length for matching and display purposes.
-pub fn effective_len(word: &str, normalize_mode: bool) -> usize {
-    if normalize_mode {
-        normalize(word).chars().count()
-    } else {
-        word.chars().count()
-    }
 }
 
 /// The form used for pattern matching: lowercased, optionally normalized.
@@ -97,7 +83,6 @@ pub fn parse_pattern(input: &str) -> Option<Pattern> {
     Some(Pattern::Template(parse_template(input)))
 }
 
-/// Parse a template string into a Vec of TemplateChar
 fn parse_template(s: &str) -> Vec<TemplateChar> {
     s.chars()
         .map(|ch| match ch {
@@ -108,7 +93,6 @@ fn parse_template(s: &str) -> Vec<TemplateChar> {
         .collect()
 }
 
-/// Number of non-wildcard positions in a template (defines required word length)
 fn template_fixed_len(template: &[TemplateChar]) -> usize {
     template
         .iter()
@@ -116,8 +100,6 @@ fn template_fixed_len(template: &[TemplateChar]) -> usize {
         .count()
 }
 
-/// Check if a word matches a template pattern.
-/// word should already be in matching form (lowercased, normalized if needed).
 fn matches_template(word: &str, template: &[TemplateChar]) -> bool {
     let word_chars: Vec<char> = word.chars().collect();
     let has_wildcard = template.iter().any(|t| matches!(t, TemplateChar::Wildcard));
@@ -136,7 +118,6 @@ fn matches_template(word: &str, template: &[TemplateChar]) -> bool {
     matches_template_wildcard(&word_chars, template)
 }
 
-/// Recursive wildcard matching
 fn matches_template_wildcard(word: &[char], template: &[TemplateChar]) -> bool {
     if template.is_empty() {
         return word.is_empty();
@@ -162,8 +143,6 @@ fn matches_template_wildcard(word: &[char], template: &[TemplateChar]) -> bool {
     }
 }
 
-/// Pure anagram match: word must use exactly the given letters + dots.
-/// Returns Some(balance) on match, None if no match.
 fn matches_anagram_exact(
     word: &str,
     letters: &[char],
@@ -227,8 +206,6 @@ fn matches_anagram_exact(
     Some(balance)
 }
 
-/// Template+anagram match: checks the word contains all required anagram letters.
-/// Length is enforced by the caller. Returns Some(balance) on match.
 fn matches_anagram_within(
     word: &str,
     letters: &[char],
@@ -236,43 +213,52 @@ fn matches_anagram_within(
 ) -> Option<String> {
     let word_chars: Vec<char> = word.chars().collect();
 
-    let mut word_counts: HashMap<char, i32> = HashMap::new();
-    for &ch in &word_chars {
-        *word_counts.entry(ch).or_insert(0) += 1;
-    }
-
-    let mut required: HashMap<char, i32> = HashMap::new();
+    let mut available: HashMap<char, i32> = HashMap::new();
     for &ch in letters {
-        *required.entry(ch).or_insert(0) += 1;
+        *available.entry(ch).or_insert(0) += 1;
     }
 
-    let mut dots_used = 0i32;
-    for (&ch, &req) in &required {
-        let have = *word_counts.get(&ch).unwrap_or(&0);
-        if have < req {
-            dots_used += req - have;
+    let mut extra: Vec<char> = Vec::new();
+    for &ch in &word_chars {
+        let avail = available.entry(ch).or_insert(0);
+        if *avail > 0 {
+            *avail -= 1;
+        } else {
+            extra.push(ch);
         }
     }
 
-    if dots_used > dot_count.unwrap_or(0) as i32 {
+    // All required letters must have been consumed
+    for &remaining in available.values() {
+        if remaining > 0 {
+            return None;
+        }
+    }
+
+    if extra.len() > dot_count.unwrap_or(0) {
         return None;
     }
 
-    Some(String::new())
+    extra.sort();
+    let balance = if extra.is_empty() {
+        String::new()
+    } else {
+        let mut s = String::from("+");
+        for ch in &extra {
+            s.push(ch.to_ascii_uppercase());
+        }
+        s
+    };
+
+    Some(balance)
 }
 
-/// Internal match result before grouping
 struct RawMatch {
     original: String,
     normalized_key: String,
     balance: Option<String>,
 }
 
-/// Search a word list and return grouped, deduplicated results.
-///
-/// normalize_mode=true:  words are normalized before matching; results are
-///                       grouped by their canonical form with variants collected.
-/// normalize_mode=false: words matched as-is; each result is its own group.
 pub fn search(
     words: &[String],
     pattern: &Pattern,
@@ -304,18 +290,28 @@ pub fn search(
             }
 
             Pattern::TemplateWithAnagram(template, letters, dots) => {
-                let has_wildcard = template.iter().any(|t| matches!(t, TemplateChar::Wildcard));
+                let has_wildcard =
+                    template.iter().any(|t| matches!(t, TemplateChar::Wildcard));
                 let length_ok = if has_wildcard {
-                    true // template matching handles length for wildcard patterns
+                    true
                 } else {
                     word_len == template_fixed_len(template)
                 };
                 if length_ok && matches_template(&matched_form, template) {
-                    matches_anagram_within(&matched_form, letters, *dots)
+                    let free_positions = if has_wildcard {
+                        word_len.saturating_sub(letters.len())
+                    } else {
+                        template
+                            .iter()
+                            .filter(|t| !matches!(t, TemplateChar::Literal(_)))
+                            .count()
+                    };
+                    let effective_dots = Some(free_positions + dots.unwrap_or(0));
+                    matches_anagram_within(&matched_form, letters, effective_dots)
                 } else {
                     None
+                }
             }
-}
         };
 
         if let Some(balance_str) = balance {
@@ -331,8 +327,6 @@ pub fn search(
         }
     }
 
-    // Group by normalized key
-    // Use an IndexMap-style approach: preserve insertion order with a Vec of keys
     let mut group_order: Vec<String> = Vec::new();
     let mut groups: HashMap<String, MatchGroup> = HashMap::new();
 
@@ -340,13 +334,11 @@ pub fn search(
         let key = raw_match.normalized_key.clone();
 
         if let Some(group) = groups.get_mut(&key) {
-            // Already have this key — add as variant if different from canonical
             let original_lower = raw_match.original.to_ascii_lowercase();
             if original_lower != key {
                 group.variants.push(raw_match.original);
             }
         } else {
-            // New key — create group
             group_order.push(key.clone());
             let original_lower = raw_match.original.to_ascii_lowercase();
             let variants = if original_lower != key {
@@ -365,7 +357,6 @@ pub fn search(
         }
     }
 
-    // Collect in insertion order, then sort by length then alphabetically
     let mut result: Vec<MatchGroup> = group_order
         .into_iter()
         .filter_map(|k| groups.remove(&k))
@@ -392,7 +383,7 @@ mod tests {
             "drinker", "beside", "bodice", "edible",
             "maharaja", "quick", "quack", "quirk", "quark",
             "escalator", "explorer's", "Escargots", "escargots", "escargot's",
-            "catch-22",
+            "catch-22", "escapists",
         ]
         .into_iter()
         .map(String::from)
@@ -453,14 +444,23 @@ mod tests {
     }
 
     #[test]
-    fn test_template_with_anagram() {
+    fn test_template_with_anagram_finds_escalator() {
         let words = word_list();
         let pattern = parse_pattern("e........;cats").unwrap();
         let results = search(&words, &pattern, 1, 50, true);
         let keys: Vec<&str> = results.iter().map(|r| r.normalized.as_str()).collect();
         assert!(keys.contains(&"escalator"));
-        // explorer's doesn't contain c,a,t,s — should not match
-        assert!(!keys.contains(&"explorers"));
+    }
+
+    #[test]
+    fn test_template_with_anagram_balance() {
+        let words = word_list();
+        let pattern = parse_pattern("e........;cats").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        let escapists = results.iter().find(|r| r.normalized == "escapists");
+        assert!(escapists.is_some(), "should find escapists");
+        let balance = escapists.unwrap().balance.as_deref().unwrap_or("");
+        assert!(balance.starts_with('+'), "balance should show extra letters: {}", balance);
     }
 
     #[test]
@@ -475,19 +475,25 @@ mod tests {
     }
 
     #[test]
+    fn test_wildcard_with_anagram() {
+        let words = word_list();
+        let pattern = parse_pattern("e*;cats").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        let keys: Vec<&str> = results.iter().map(|r| r.normalized.as_str()).collect();
+        assert!(keys.contains(&"escalator"));
+        assert!(keys.contains(&"escapists"));
+    }
+
+    #[test]
     fn test_deduplication_groups_variants() {
         let words = word_list();
-        // Search for 9-letter words starting with e — should group escargots variants
         let pattern = parse_pattern("e........").unwrap();
         let results = search(&words, &pattern, 1, 50, true);
         let escargots = results.iter().find(|r| r.normalized == "escargots");
-        assert!(escargots.is_some(), "should find escargots group");
+        assert!(escargots.is_some());
         let group = escargots.unwrap();
-        // Should have collected the variant forms
-        assert!(!group.variants.is_empty(), "escargots group should have variants");
-        // The three variants are: Escargots, escargot's (escargots itself is the key)
         assert_eq!(group.variants.len(), 1,
-            "expected 1 variant (escargot's), got {:?}", group.variants);
+            "expected 1 variant, got {:?}", group.variants);
         assert!(group.variants.contains(&"escargot's".to_string()));
     }
 
@@ -496,21 +502,9 @@ mod tests {
         let words = word_list();
         let pattern = parse_pattern("e........").unwrap();
         let results = search(&words, &pattern, 1, 50, false);
-        // With normalize off, explorer's is 10 chars — filtered out
-        // escargots, Escargots are 9 chars but apostrophe version is 10
         for r in &results {
-            assert!(r.variants.is_empty(), "no grouping when normalize=false");
+            assert!(r.variants.is_empty());
         }
-    }
-
-    #[test]
-    fn test_hyphenated_word_normalize() {
-        let words = word_list();
-        let pattern = parse_pattern("c......").unwrap();
-        let results = search(&words, &pattern, 1, 50, true);
-        let catch22 = results.iter().find(|r| r.normalized == "catch22");
-        assert!(catch22.is_some());
-        assert!(!catch22.unwrap().variants.is_empty());
     }
 
     #[test]

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "coffee-crossword",
+  "productName": "Coffee Crossword",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.coffeecrossword.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "coffee-crossword",
+        "title": "Coffee Crossword",
         "width": 800,
-        "height": 600,
+        "height": 700,
+        "minWidth": 480,
+        "minHeight": 400,
         "resizable": true,
         "fullscreen": false
       }

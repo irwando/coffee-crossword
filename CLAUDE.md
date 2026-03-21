@@ -236,6 +236,31 @@ npm run dev
 
 ---
 
+## Dictionary / word list system
+
+### Current (MVP)
+- Single list loaded at startup from `dictionaries/english.txt`
+- Display name = filename without extension (e.g. "english")
+
+### Future: list management
+- Each list has a file path, a file name, and a user-editable display name
+- Lists have a priority order (higher priority = searched first)
+- List management UI to be designed later
+
+### Future: multi-list display modes
+
+**Merged mode (default):**
+- All lists searched together, results combined into one set
+- Deduplication applied across all lists
+- Header shows "english + 2 more" format
+- Priority order determines which list "owns" a result for dedup purposes
+
+**Separate mode:**
+- Each list shows its own results column (stacked or side-by-side, user choice)
+- Results are prioritized — a word found in list 1 is suppressed from list 2,
+  list 2 suppresses from list 3, etc. (matches TEA behavior exactly)
+- Each column shows its own list name and match count
+---
 ## Decisions log
 
 > Record significant decisions here with brief rationale. Never delete entries.

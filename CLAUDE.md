@@ -7,7 +7,7 @@ as decisions are made. It is the single source of truth for project context.
 
 ## What this project is
 
-A modern, cross-platform reimplementation of **TEA (The Electronic Alveary)**,
+A modern, cross-platform reimplementation of A modern, cross-platform reimplementation of **TEA (The TA Crossword Helper)**,
 a Windows word-search tool used for solving crossword puzzles and other word
 games. TEA is no longer maintained. This project recreates its functionality
 with a modern stack that runs on Mac, browser, iOS, Android, and Windows.

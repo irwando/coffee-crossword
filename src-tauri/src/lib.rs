@@ -1,4 +1,4 @@
-mod engine;
+pub mod engine;
 
 use std::sync::Mutex;
 use tauri::{
@@ -27,14 +27,22 @@ fn search(
     state: State<AppState>,
 ) -> Result<SearchResponse, String> {
     let words = state.words.lock().map_err(|e| e.to_string())?;
-    let parsed = engine::parse_pattern(pattern)
-        .ok_or_else(|| "Empty pattern".to_string())?;
-    let results = engine::search(&words, &parsed, min_len, max_len, normalize);
+    let results = engine::search_words(&words, pattern, min_len, max_len, normalize);
     Ok(SearchResponse {
         dict_name: state.dict_name.clone(),
         dict_count: words.len(),
         results,
     })
+}
+
+#[tauri::command]
+fn describe_pattern(pattern: &str) -> Option<String> {
+    engine::describe_pattern(pattern)
+}
+
+#[tauri::command]
+fn validate_pattern(pattern: &str) -> Result<(), String> {
+    engine::validate_pattern(pattern)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -77,10 +85,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(AppState {
-            words: Mutex::new(words),
-            dict_name,
-        })
+        .manage(AppState { words: Mutex::new(words), dict_name })
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -112,7 +117,6 @@ pub fn run() {
 
             // ── View menu ──────────────────────────────────────────────────
 
-            // Panel toggles
             let toggle_description = CheckMenuItem::with_id(
                 app, "toggle_description", "Pattern Description", true, true, None::<&str>,
             )?;
@@ -130,7 +134,6 @@ pub fn run() {
             let ref_off = CheckMenuItem::with_id(
                 app, "ref_off", "Off", true, false, None::<&str>,
             )?;
-
             let reference_submenu = Submenu::with_items(
                 app, "Pattern Reference", true,
                 &[&ref_full, &ref_compact, &ref_off],
@@ -146,7 +149,6 @@ pub fn run() {
             let appearance_system = CheckMenuItem::with_id(
                 app, "appearance_system", "System", true, true, None::<&str>,
             )?;
-
             let appearance_menu = Submenu::with_items(
                 app, "Appearance", true,
                 &[&appearance_light, &appearance_dark, &appearance_system],
@@ -193,15 +195,12 @@ pub fn run() {
                 match event.id().as_ref() {
                     "toggle_description" => emit("menu:toggle", "description"),
                     "toggle_options"     => emit("menu:toggle", "options"),
-                    "reset_layout"       => {
-                        // Reset reference to Full
+                    "reset_layout" => {
                         let _ = rf.set_checked(true);
                         let _ = rc.set_checked(false);
                         let _ = ro.set_checked(false);
                         emit("menu:reset_layout", "");
                     }
-
-                    // Pattern Reference radio
                     "ref_full" => {
                         let _ = rf.set_checked(true);
                         let _ = rc.set_checked(false);
@@ -220,8 +219,6 @@ pub fn run() {
                         let _ = ro.set_checked(true);
                         emit("menu:reference", "off");
                     }
-
-                    // Appearance radio
                     "appearance_light" => {
                         let _ = al.set_checked(true);
                         let _ = ad.set_checked(false);
@@ -243,13 +240,12 @@ pub fn run() {
                     _ => {}
                 }
 
-                // Keep app_handle alive
                 let _ = &app_handle;
             });
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![search])
+        .invoke_handler(tauri::generate_handler![search, describe_pattern, validate_pattern])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -7,12 +7,15 @@ license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+default-run = "app"
 
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "ccli"
+path = "src/bin/ccli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }
@@ -25,3 +28,4 @@ tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-store = "2.4.2"
 tauri-plugin-clipboard-manager = "2.3.2"
+clap = { version = "4.5.61", features = ["derive"] }

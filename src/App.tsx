@@ -24,12 +24,12 @@ interface HistoryEntry {
 interface ContextMenu {
   x: number;
   y: number;
-  words: string[];
 }
 
 type VariantMode = "show" | "hide";
 type ViewMode = "grid" | "list";
 type AppearanceMode = "light" | "dark" | "system";
+type ReferenceMode = "full" | "compact" | "off";
 
 const STORE_FILE = "settings.json";
 const MAX_HISTORY = 100;
@@ -40,13 +40,13 @@ const DEFAULTS = {
   viewMode: "list" as ViewMode,
   minLen: 1,
   maxLen: 50,
-  showReference: true,
+  referenceMode: "full" as ReferenceMode,
   showDescription: true,
   showOptions: true,
   appearance: "system" as AppearanceMode,
 };
 
-// ── Theme management ─────────────────────────────────────────────────────────
+// ── Theme ────────────────────────────────────────────────────────────────────
 
 let systemDarkListener: ((e: MediaQueryListEvent) => void) | null = null;
 let systemMQ: MediaQueryList | null = null;
@@ -59,11 +59,9 @@ function applyTheme(mode: AppearanceMode) {
     systemMQ = null;
   }
   if (mode === "light") {
-    root.classList.remove("dark");
-    root.classList.add("light");
+    root.classList.remove("dark"); root.classList.add("light");
   } else if (mode === "dark") {
-    root.classList.remove("light");
-    root.classList.add("dark");
+    root.classList.remove("light"); root.classList.add("dark");
   } else {
     systemMQ = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = (dark: boolean) => {
@@ -76,67 +74,95 @@ function applyTheme(mode: AppearanceMode) {
   }
 }
 
-// ── Pattern explainer ────────────────────────────────────────────────────────
+// ── Reference panel data ──────────────────────────────────────────────────────
+// Single source of truth — Full table and Compact grid both render from this.
+// RULE: when adding a new pattern type, add a row here AND update engine.rs describe_pattern.
 
-function explainTemplate(tmpl: string): string {
-  const hasWild = tmpl.includes("*");
-  const first = tmpl[0];
-  const last = tmpl[tmpl.length - 1];
-  const firstIsLetter = first && /[a-zA-Z]/.test(first);
-  const lastIsLetter = last && /[a-zA-Z]/.test(last);
+const REFERENCE_ROWS = [
+  { feature: "Template",         pattern: ".l...r.n",    match: "electron",      note: ". or ? = any letter"        },
+  { feature: "Anagram",          pattern: ";acenrt",      match: "canter",        note: "; prefix = rearrange"        },
+  { feature: "Wildcard",         pattern: "m*ja",         match: "maharaja",      note: "* = zero or more letters"   },
+  { feature: "Choice list",      pattern: "[aeiou]....",  match: "ultra",         note: "any one letter from set"    },
+  { feature: "Negated choice",   pattern: "[^aeiou]...",  match: "cast",          note: "any letter not in set"      },
+  { feature: "Macro",            pattern: "@....",        match: "ultra",         note: "@ = vowel, # = consonant"   },
+  { feature: "Anagram blank",    pattern: ";acenrt.",     match: "cantered +ED",  note: ". = one unknown letter"     },
+  { feature: "Anagram wildcard", pattern: ";cats*",       match: "escalator",     note: "* = any extra letters"      },
+  { feature: "Tmpl + anagram",   pattern: "e.....;cats",  match: "enacts",        note: "combine both styles"        },
+  { feature: "Letter variable",  pattern: "12321",        match: "level",         note: "same digit = same letter"   },
+  { feature: "Logical AND",      pattern: "c* & *s",      match: "cats",          note: "must match both"            },
+  { feature: "Logical OR",       pattern: "c... | ...r",  match: "cast",          note: "matches either"             },
+  { feature: "Logical NOT",      pattern: "c* & !cat*",   match: "cast",          note: "exclude matches"            },
+];
 
-  if (hasWild) {
-    let desc = "Words";
-    if (firstIsLetter && lastIsLetter && first.toLowerCase() !== last.toLowerCase()) {
-      desc += ` starting with "${first.toUpperCase()}" and ending with "${last.toUpperCase()}"`;
-    } else if (firstIsLetter) {
-      desc += ` starting with "${first.toUpperCase()}"`;
-    } else if (lastIsLetter) {
-      desc += ` ending with "${last.toUpperCase()}"`;
-    } else {
-      desc += " of any length";
-    }
-    return desc;
-  }
+// ── Reference panels ──────────────────────────────────────────────────────────
 
-  const len = tmpl.length;
-  let desc = `${len}-letter words`;
-  if (firstIsLetter && lastIsLetter && len > 1 && first.toLowerCase() !== last.toLowerCase()) {
-    desc += ` starting with "${first.toUpperCase()}" and ending with "${last.toUpperCase()}"`;
-  } else if (firstIsLetter) {
-    desc += ` starting with "${first.toUpperCase()}"`;
-  } else if (lastIsLetter) {
-    desc += ` ending with "${last.toUpperCase()}"`;
-  }
-  return desc;
+function ReferenceHeader() {
+  return (
+    <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide px-3 mb-1.5">
+      Pattern reference
+    </div>
+  );
 }
 
-function explainPattern(raw: string): string {
-  const val = raw.trim();
-  if (!val) return "";
-  const semiPos = val.indexOf(";");
-  if (semiPos === -1) return explainTemplate(val);
+function ReferenceFull({ onPatternClick }: { onPatternClick: (p: string) => void }) {
+  return (
+    <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <div className="px-3 pt-2 pb-1">
+        <ReferenceHeader />
+      </div>
+      <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+        <thead>
+          <tr className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Feature</th>
+            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Pattern</th>
+            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Match</th>
+            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {REFERENCE_ROWS.map((row) => (
+            <tr key={row.feature}
+              className="border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-white dark:hover:bg-gray-700 cursor-pointer"
+              onClick={() => onPatternClick(row.pattern)}
+            >
+              <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 font-medium">{row.feature}</td>
+              <td className="px-3 py-1.5">
+                <span className="font-mono text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-0.5">
+                  {row.pattern}
+                </span>
+              </td>
+              <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">{row.match}</td>
+              <td className="px-3 py-1.5 text-gray-400 dark:text-gray-500">{row.note}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-  const tmpl = val.slice(0, semiPos);
-  const anagramPart = val.slice(semiPos + 1);
-  const letters = anagramPart.replace(/[^a-zA-Z]/g, "").toUpperCase();
-  const dots = (anagramPart.match(/[.?]/g) || []).length;
-  const hasWild = anagramPart.includes("*");
-
-  if (!tmpl) {
-    let s = letters ? `Anagrams of "${letters}"` : "Anagram search";
-    if (hasWild) s += " (any number of extra letters)";
-    else if (dots === 1) s += " using 1 additional letter";
-    else if (dots > 1) s += ` using ${dots} additional letters`;
-    return s;
-  }
-
-  let s = explainTemplate(tmpl);
-  if (letters) s += `, containing the letters "${letters}"`;
-  if (hasWild) s += " (any number of extra letters)";
-  else if (dots === 1) s += " plus 1 free letter";
-  else if (dots > 1) s += ` plus ${dots} free letters`;
-  return s;
+function ReferenceCompact({ onPatternClick }: { onPatternClick: (p: string) => void }) {
+  return (
+    <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+      <ReferenceHeader />
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+        {REFERENCE_ROWS.map((row) => (
+          <div
+            key={row.feature}
+            onClick={() => onPatternClick(row.pattern)}
+            className="flex items-baseline gap-1 font-mono text-xs overflow-hidden cursor-pointer hover:opacity-70"
+          >
+            <span className="font-sans text-gray-500 dark:text-gray-400 flex-shrink-0 text-xs">{row.feature}</span>
+            <span className="text-gray-300 dark:text-gray-600 flex-shrink-0">(</span>
+            <span className="text-gray-800 dark:text-gray-200 flex-shrink-0">{row.pattern}</span>
+            <span className="text-gray-400 dark:text-gray-500 flex-shrink-0">→</span>
+            <span className="text-gray-500 dark:text-gray-400 truncate">{row.match.split(",")[0].split(" ")[0]}</span>
+            <span className="text-gray-300 dark:text-gray-600 flex-shrink-0">)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── Main app ─────────────────────────────────────────────────────────────────
@@ -158,7 +184,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULTS.viewMode);
   const [minLen, setMinLen] = useState(DEFAULTS.minLen);
   const [maxLen, setMaxLen] = useState(DEFAULTS.maxLen);
-  const [showReference, setShowReference] = useState(DEFAULTS.showReference);
+  const [referenceMode, setReferenceMode] = useState<ReferenceMode>(DEFAULTS.referenceMode);
   const [showDescription, setShowDescription] = useState(DEFAULTS.showDescription);
   const [showOptions, setShowOptions] = useState(DEFAULTS.showOptions);
   const [appearance, setAppearance] = useState<AppearanceMode>(DEFAULTS.appearance);
@@ -168,7 +194,6 @@ export default function App() {
   const settingsLoaded = useRef(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
-  // Flat list of all result words in display order (for drag/range selection)
   const allWords = results.map((r) => r.normalized);
 
   useEffect(() => { applyTheme(appearance); }, [appearance]);
@@ -183,7 +208,7 @@ export default function App() {
         store.get<ViewMode>("viewMode"),
         store.get<number>("minLen"),
         store.get<number>("maxLen"),
-        store.get<boolean>("showReference"),
+        store.get<ReferenceMode>("referenceMode"),
         store.get<boolean>("showDescription"),
         store.get<boolean>("showOptions"),
         store.get<AppearanceMode>("appearance"),
@@ -194,7 +219,7 @@ export default function App() {
         if (view) setViewMode(view);
         if (min !== null && min !== undefined) setMinLen(min);
         if (max !== null && max !== undefined) setMaxLen(max);
-        if (ref_ !== null && ref_ !== undefined) setShowReference(ref_);
+        if (ref_) setReferenceMode(ref_);
         if (desc !== null && desc !== undefined) setShowDescription(desc);
         if (opts !== null && opts !== undefined) setShowOptions(opts);
         if (app_) { setAppearance(app_); applyTheme(app_); }
@@ -213,12 +238,12 @@ export default function App() {
     s.set("viewMode", viewMode);
     s.set("minLen", minLen);
     s.set("maxLen", maxLen);
-    s.set("showReference", showReference);
+    s.set("referenceMode", referenceMode);
     s.set("showDescription", showDescription);
     s.set("showOptions", showOptions);
     s.set("appearance", appearance);
   }, [normalize, variantMode, viewMode, minLen, maxLen,
-      showReference, showDescription, showOptions, appearance]);
+      referenceMode, showDescription, showOptions, appearance]);
 
   // Persist history
   useEffect(() => {
@@ -232,9 +257,12 @@ export default function App() {
 
     listen<string>("menu:toggle", (event) => {
       const panel = event.payload;
-      if (panel === "reference") setShowReference((v) => !v);
-      else if (panel === "description") setShowDescription((v) => !v);
+      if (panel === "description") setShowDescription((v) => !v);
       else if (panel === "options") setShowOptions((v) => !v);
+    }).then((u) => unlisten.push(u));
+
+    listen<string>("menu:reference", (event) => {
+      setReferenceMode(event.payload as ReferenceMode);
     }).then((u) => unlisten.push(u));
 
     listen<string>("menu:appearance", (event) => {
@@ -244,7 +272,7 @@ export default function App() {
     }).then((u) => unlisten.push(u));
 
     listen<string>("menu:reset_layout", () => {
-      setShowReference(DEFAULTS.showReference);
+      setReferenceMode(DEFAULTS.referenceMode);
       setShowDescription(DEFAULTS.showDescription);
       setShowOptions(DEFAULTS.showOptions);
       setNormalize(DEFAULTS.normalize);
@@ -270,7 +298,7 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Close context menu on click outside
+  // Close context menu on click
   useEffect(() => {
     if (!contextMenu) return;
     const handler = () => setContextMenu(null);
@@ -278,20 +306,26 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, [contextMenu]);
 
-  // Debounced pattern explanation
+  // Debounced pattern description — 500ms, calls Rust describe_pattern
   useEffect(() => {
     setExplanation("");
     if (explainTimerRef.current) clearTimeout(explainTimerRef.current);
     if (!pattern.trim()) return;
-    explainTimerRef.current = setTimeout(() => {
-      setExplanation(explainPattern(pattern));
-    }, 2000);
+    explainTimerRef.current = setTimeout(async () => {
+      try {
+        const desc = await invoke<string | null>("describe_pattern", { pattern: pattern.trim() });
+        setExplanation(desc ?? "");
+      } catch {
+        setExplanation("");
+      }
+    }, 500);
     return () => { if (explainTimerRef.current) clearTimeout(explainTimerRef.current); };
   }, [pattern]);
 
-  const doSearch = useCallback(async () => {
-    const trimmed = pattern.trim();
+  const doSearch = useCallback(async (patternOverride?: string) => {
+    const trimmed = (patternOverride ?? pattern).trim();
     if (!trimmed) return;
+    if (patternOverride) setPattern(patternOverride);
     setLoading(true);
     setStatus("Searching...");
     setShowHistory(false);
@@ -321,33 +355,27 @@ export default function App() {
     if (e.key === "Escape") setShowHistory(false);
   };
 
+  // Selecting from history runs the search immediately
   const selectHistory = (entry: HistoryEntry) => {
-    setPattern(entry.pattern);
-    setResults([]);
-    setSelectedWords(new Set());
-    setStatus("Enter a pattern and press Search");
     setShowHistory(false);
+    doSearch(entry.pattern);
   };
 
-  // ── Selection handlers ───────────────────────────────────────────────────
+  // Clicking a reference pattern runs search immediately
+  const handleReferenceClick = (p: string) => {
+    doSearch(p);
+  };
 
-  const handleWordClick = useCallback((
-    word: string,
-    e: React.MouseEvent
-  ) => {
+  const handleWordClick = useCallback((word: string, e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu(null);
-
     if (e.metaKey || e.ctrlKey) {
-      // Cmd/Ctrl+click: toggle this word in selection
       setSelectedWords((prev) => {
         const next = new Set(prev);
-        if (next.has(word)) next.delete(word);
-        else next.add(word);
+        if (next.has(word)) next.delete(word); else next.add(word);
         return next;
       });
     } else if (e.shiftKey && selectedWords.size > 0) {
-      // Shift+click: range select from last selected to this word
       const lastSelected = [...selectedWords].pop()!;
       const fromIdx = allWords.indexOf(lastSelected);
       const toIdx = allWords.indexOf(word);
@@ -356,38 +384,28 @@ export default function App() {
         setSelectedWords(new Set(allWords.slice(start, end + 1)));
       }
     } else {
-      // Plain click: select only this word
       setSelectedWords(new Set([word]));
     }
   }, [allWords, selectedWords]);
 
-  const handleWordRightClick = useCallback((
-    word: string,
-    e: React.MouseEvent
-  ) => {
+  const handleWordRightClick = useCallback((word: string, e: React.MouseEvent) => {
     e.preventDefault();
-    // If right-clicking a word not in selection, select just that word
     setSelectedWords((prev) => {
       if (!prev.has(word)) return new Set([word]);
       return prev;
     });
-    setContextMenu({ x: e.clientX, y: e.clientY, words: [] });
-    // words will be read from selectedWords at render time
+    setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
-
-  // ── Context menu actions ─────────────────────────────────────────────────
 
   const handleCopy = useCallback(async () => {
     const text = [...selectedWords].join("\n");
     try {
       await writeText(text);
     } catch {
-      // Fallback to navigator clipboard
       await navigator.clipboard.writeText(text);
     }
     setContextMenu(null);
   }, [selectedWords]);
-
 
   const grouped = results.reduce<Record<number, MatchGroup[]>>((acc, r) => {
     const len = r.normalized.length;
@@ -396,8 +414,6 @@ export default function App() {
     return acc;
   }, {});
   const lengths = Object.keys(grouped).map(Number).sort((a, b) => a - b);
-
-  const singleSelected = selectedWords.size === 1 ? [...selectedWords][0] : null;
 
   return (
     <div
@@ -408,19 +424,8 @@ export default function App() {
       {/* ── STATIC HEADER ── */}
       <div className="border-b border-gray-200 dark:border-gray-700 px-5 pt-3 pb-0 flex-shrink-0 bg-white dark:bg-gray-900">
 
-        {showReference && (
-          <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
-              <span><span className="text-gray-700 dark:text-gray-300">.l...r.n</span> → electron (template)</span>
-              <span><span className="text-gray-700 dark:text-gray-300">;acenrt</span> → canter, trance… (anagram)</span>
-              <span><span className="text-gray-700 dark:text-gray-300">m*ja</span> → maharaja (wildcard)</span>
-              <span><span className="text-gray-700 dark:text-gray-300">q???k</span> → quick, quack… (? = any)</span>
-              <span><span className="text-gray-700 dark:text-gray-300">;acenrt.</span> → anagram + 1 blank</span>
-              <span><span className="text-gray-700 dark:text-gray-300">e....;cats</span> → template + anagram</span>
-              <span><span className="text-gray-700 dark:text-gray-300">[aeiou]...</span> → vowel + 3 letters</span>     
-            </div>
-          </div>
-        )}
+        {referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} />}
+        {referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} />}
 
         {/* Search row */}
         <div className="flex gap-2 mb-1.5" ref={historyRef}>
@@ -433,11 +438,7 @@ export default function App() {
               onFocus={() => history.length > 0 && setShowHistory(true)}
               placeholder="e.g.  .l...r.n  or  ;acenrt  or  m*ja"
               className="w-full pl-3 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
-              autoCorrect="off"
-              autoCapitalize="off"
-              autoComplete="off"
-              spellCheck={false}
-              autoFocus
+              autoCorrect="off" autoCapitalize="off" autoComplete="off" spellCheck={false} autoFocus
             />
             {history.length > 0 && (
               <button
@@ -473,7 +474,7 @@ export default function App() {
           </div>
 
           <button
-            onClick={doSearch}
+            onClick={() => doSearch()}
             disabled={loading}
             className="px-5 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors flex-shrink-0"
           >
@@ -481,7 +482,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Pattern description — always shown */}
+        {/* Pattern description — always shown, powered by Rust describe_pattern */}
         {showDescription && (
           <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-1.5 mb-1.5 leading-relaxed">
             {explanation || (
@@ -515,9 +516,7 @@ export default function App() {
                         ? "bg-blue-500 text-white border-blue-500"
                         : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600"
                     }`}
-                  >
-                    {mode === "show" ? "Show" : "Hide"}
-                  </button>
+                  >{mode === "show" ? "Show" : "Hide"}</button>
                 ))}
               </div>
             )}
@@ -533,9 +532,7 @@ export default function App() {
                       ? "bg-blue-500 text-white border-blue-500"
                       : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600"
                   }`}
-                >
-                  {v === "grid" ? "Grid" : "List"}
-                </button>
+                >{v === "grid" ? "Grid" : "List"}</button>
               ))}
             </div>
           </div>
@@ -545,19 +542,13 @@ export default function App() {
         <div className="flex items-center gap-2 pb-2.5 text-xs text-gray-400">
           <span>Word length:</span>
           <input
-            type="number"
-            value={minLen}
-            min={1}
-            max={maxLen}
+            type="number" value={minLen} min={1} max={maxLen}
             onChange={(e) => setMinLen(Math.max(1, Number(e.target.value)))}
             className="w-12 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
           />
           <span>to</span>
           <input
-            type="number"
-            value={maxLen}
-            min={minLen}
-            max={100}
+            type="number" value={maxLen} min={minLen} max={100}
             onChange={(e) => setMaxLen(Math.max(minLen, Number(e.target.value)))}
             className="w-12 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
           />
@@ -569,12 +560,8 @@ export default function App() {
       {results.length > 0 && (
         <div className="flex items-center justify-between px-5 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-              {results.length} matches
-            </span>
-            {dictName && (
-              <span className="text-xs text-gray-400">from {dictName}</span>
-            )}
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{results.length} matches</span>
+            {dictName && <span className="text-xs text-gray-400">from {dictName}</span>}
           </div>
         </div>
       )}
@@ -585,26 +572,12 @@ export default function App() {
           <p className="text-sm text-gray-400 dark:text-gray-500">{status}</p>
         )}
         {results.length > 0 && viewMode === "grid" && (
-          <GridView
-            lengths={lengths}
-            grouped={grouped}
-            normalize={normalize}
-            variantMode={variantMode}
-            selectedWords={selectedWords}
-            onWordClick={handleWordClick}
-            onWordRightClick={handleWordRightClick}
-          />
+          <GridView lengths={lengths} grouped={grouped} normalize={normalize} variantMode={variantMode}
+            selectedWords={selectedWords} onWordClick={handleWordClick} onWordRightClick={handleWordRightClick} />
         )}
         {results.length > 0 && viewMode === "list" && (
-          <ListView
-            lengths={lengths}
-            grouped={grouped}
-            normalize={normalize}
-            variantMode={variantMode}
-            selectedWords={selectedWords}
-            onWordClick={handleWordClick}
-            onWordRightClick={handleWordRightClick}
-          />
+          <ListView lengths={lengths} grouped={grouped} normalize={normalize} variantMode={variantMode}
+            selectedWords={selectedWords} onWordClick={handleWordClick} onWordRightClick={handleWordRightClick} />
         )}
       </div>
 
@@ -613,9 +586,7 @@ export default function App() {
         <span className="text-xs text-gray-400 dark:text-gray-500">
           {selectedWords.size > 0
             ? `${selectedWords.size} word${selectedWords.size === 1 ? "" : "s"} selected`
-            : results.length > 0
-            ? `${results.length} words`
-            : ""}
+            : results.length > 0 ? `${results.length} words` : ""}
         </span>
       </div>
 
@@ -624,72 +595,43 @@ export default function App() {
         <ContextMenuPopup
           x={contextMenu.x}
           y={contextMenu.y}
-          selectedWords={selectedWords}
-          singleWord={singleSelected}
           onCopy={handleCopy}
-          onClose={() => setContextMenu(null)}
         />
       )}
     </div>
   );
 }
 
-// ── Context menu popup ────────────────────────────────────────────────────────
+// ── Context menu ──────────────────────────────────────────────────────────────
 
-interface ContextMenuPopupProps {
-  x: number;
-  y: number;
-  selectedWords: Set<string>;
-  singleWord: string | null;
-  onCopy: () => void;
-  onClose: () => void;
-}
-
-function ContextMenuPopup({ x, y, onCopy}: ContextMenuPopupProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Adjust position if menu would go off screen
-  const style: React.CSSProperties = {
-    position: "fixed",
-    left: x,
-    top: y,
-    zIndex: 1000,
-  };
-
-  const MenuItem = ({
-  label,
-  onClick,
-  disabled = false,
-}: {
-  label: string;
-  onClick?: () => void;
-  disabled?: boolean;
-}) => (
-  <button
-    onClick={disabled ? undefined : onClick}
-    className={`w-full text-left px-4 py-1.5 text-sm transition-colors ${
-      disabled
-        ? "context-menu-disabled cursor-default"
-        : "text-gray-700 dark:text-gray-200 hover:bg-blue-500 hover:text-white cursor-pointer"
-    }`}
-  >
-    {label}
-  </button>
-);
+function ContextMenuPopup({ x, y, onCopy }: {
+  x: number; y: number; onCopy: () => void;
+}) {
+  const CMItem = ({ label, onClick, disabled = false }: {
+    label: string; onClick?: () => void; disabled?: boolean;
+  }) => (
+    <button
+      onClick={disabled ? undefined : onClick}
+      className={`w-full text-left px-4 py-1.5 text-sm transition-colors ${
+        disabled
+          ? "context-menu-disabled cursor-default"
+          : "text-gray-700 dark:text-gray-200 hover:bg-blue-500 hover:text-white cursor-pointer"
+      }`}
+    >{label}</button>
+  );
 
   return (
     <div
-      ref={menuRef}
-      style={style}
+      style={{ position: "fixed", left: x, top: y, zIndex: 1000 }}
       className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-48"
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <MenuItem label="Copy" onClick={onCopy} />
+      <CMItem label="Copy" onClick={onCopy} />
       <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
-      <MenuItem label="Look up definition" disabled />
-      <MenuItem label="Open in external dictionary" disabled />
+      <CMItem label="Look up definition" disabled />
+      <CMItem label="Open in external dictionary" disabled />
       <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
-      <MenuItem label="Copy to word list" disabled />
+      <CMItem label="Copy to word list" disabled />
     </div>
   );
 }
@@ -730,9 +672,7 @@ function GridView({ lengths, grouped, normalize, variantMode, selectedWords, onW
                 {normalize && variantMode === "show" && r.variants.length > 0 && (
                   <span className="text-xs text-gray-400">({r.variants.join(", ")})</span>
                 )}
-                {r.balance && (
-                  <span className="font-mono text-xs text-blue-500">{r.balance}</span>
-                )}
+                {r.balance && <span className="font-mono text-xs text-blue-500">{r.balance}</span>}
               </div>
             ))}
           </div>
@@ -746,8 +686,7 @@ function GridView({ lengths, grouped, normalize, variantMode, selectedWords, onW
 
 function ListView({ lengths, grouped, normalize, variantMode, selectedWords, onWordClick, onWordRightClick }: ViewProps) {
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
-  const toggle = (len: number) =>
-    setCollapsed((prev) => ({ ...prev, [len]: !prev[len] }));
+  const toggle = (len: number) => setCollapsed((prev) => ({ ...prev, [len]: !prev[len] }));
 
   return (
     <>
@@ -758,18 +697,13 @@ function ListView({ lengths, grouped, normalize, variantMode, selectedWords, onW
             <button
               onClick={() => toggle(len)}
               className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${
-                isCollapsed
-                  ? "bg-gray-50 dark:bg-gray-800"
-                  : "bg-gray-100 dark:bg-gray-700"
+                isCollapsed ? "bg-gray-50 dark:bg-gray-800" : "bg-gray-100 dark:bg-gray-700"
               }`}
             >
               <div className="flex items-center gap-2">
                 <span
                   className={`text-xs transition-transform ${!isCollapsed ? "text-gray-500 dark:text-gray-300" : "text-gray-400 dark:text-gray-500"}`}
-                  style={{
-                    display: "inline-block",
-                    transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-                  }}
+                  style={{ display: "inline-block", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
                 >▾</span>
                 <span className={`text-xs font-semibold ${isCollapsed ? "text-gray-500 dark:text-gray-400" : "text-gray-700 dark:text-gray-200"}`}>
                   {len} letter{len === 1 ? "" : "s"}
@@ -798,9 +732,7 @@ function ListView({ lengths, grouped, normalize, variantMode, selectedWords, onW
                       {normalize && variantMode === "show" && r.variants.length > 0 && (
                         <span className="text-xs text-gray-400">({r.variants.join(", ")})</span>
                       )}
-                      {r.balance && (
-                        <span className="font-mono text-xs text-blue-500">{r.balance}</span>
-                      )}
+                      {r.balance && <span className="font-mono text-xs text-blue-500">{r.balance}</span>}
                     </div>
                   </div>
                 ))}

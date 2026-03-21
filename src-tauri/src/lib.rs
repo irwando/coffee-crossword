@@ -2,17 +2,15 @@ mod engine;
 
 use std::sync::Mutex;
 use tauri::{
-    menu::{CheckMenuItem, Menu, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     Emitter, Manager, State,
 };
 
-/// Global app state — loaded once at startup
 pub struct AppState {
     pub words: Mutex<Vec<String>>,
     pub dict_name: String,
 }
 
-/// Response shape returned to the frontend
 #[derive(serde::Serialize)]
 pub struct SearchResponse {
     pub results: Vec<engine::MatchGroup>,
@@ -20,7 +18,6 @@ pub struct SearchResponse {
     pub dict_count: usize,
 }
 
-/// The search command exposed to the React frontend
 #[tauri::command]
 fn search(
     pattern: &str,
@@ -30,12 +27,9 @@ fn search(
     state: State<AppState>,
 ) -> Result<SearchResponse, String> {
     let words = state.words.lock().map_err(|e| e.to_string())?;
-
     let parsed = engine::parse_pattern(pattern)
         .ok_or_else(|| "Empty pattern".to_string())?;
-
     let results = engine::search(&words, &parsed, min_len, max_len, normalize);
-
     Ok(SearchResponse {
         dict_name: state.dict_name.clone(),
         dict_count: words.len(),
@@ -96,21 +90,15 @@ pub fn run() {
                 )?;
             }
 
-            // ── Build native menu bar ──────────────────────────────────────
-
-            // File menu
+            // ── File menu ──────────────────────────────────────────────────
             let file_menu = Submenu::with_items(
-                app,
-                "File",
-                true,
+                app, "File", true,
                 &[&PredefinedMenuItem::quit(app, None)?],
             )?;
 
-            // Edit menu
+            // ── Edit menu ──────────────────────────────────────────────────
             let edit_menu = Submenu::with_items(
-                app,
-                "Edit",
-                true,
+                app, "Edit", true,
                 &[
                     &PredefinedMenuItem::undo(app, None)?,
                     &PredefinedMenuItem::redo(app, None)?,
@@ -122,10 +110,9 @@ pub fn run() {
                 ],
             )?;
 
-            // View menu — panel toggles
-            let toggle_reference = CheckMenuItem::with_id(
-                app, "toggle_reference", "Pattern Reference", true, true, None::<&str>,
-            )?;
+            // ── View menu ──────────────────────────────────────────────────
+
+            // Panel toggles
             let toggle_description = CheckMenuItem::with_id(
                 app, "toggle_description", "Pattern Description", true, true, None::<&str>,
             )?;
@@ -133,7 +120,23 @@ pub fn run() {
                 app, "toggle_options", "Options", true, true, None::<&str>,
             )?;
 
-            // Appearance submenu — radio-style (only one active at a time)
+            // Pattern Reference submenu — radio style
+            let ref_full = CheckMenuItem::with_id(
+                app, "ref_full", "Full", true, true, None::<&str>,
+            )?;
+            let ref_compact = CheckMenuItem::with_id(
+                app, "ref_compact", "Compact", true, false, None::<&str>,
+            )?;
+            let ref_off = CheckMenuItem::with_id(
+                app, "ref_off", "Off", true, false, None::<&str>,
+            )?;
+
+            let reference_submenu = Submenu::with_items(
+                app, "Pattern Reference", true,
+                &[&ref_full, &ref_compact, &ref_off],
+            )?;
+
+            // Appearance submenu — radio style
             let appearance_light = CheckMenuItem::with_id(
                 app, "appearance_light", "Light", true, false, None::<&str>,
             )?;
@@ -145,54 +148,80 @@ pub fn run() {
             )?;
 
             let appearance_menu = Submenu::with_items(
-                app,
-                "Appearance",
-                true,
+                app, "Appearance", true,
                 &[&appearance_light, &appearance_dark, &appearance_system],
             )?;
 
+            // Reset layout
+            let reset_layout = MenuItem::with_id(
+                app, "reset_layout", "Reset to Default Layout", true, None::<&str>,
+            )?;
+
             let view_menu = Submenu::with_items(
-                app,
-                "View",
-                true,
+                app, "View", true,
                 &[
-                    &toggle_reference,
+                    &reference_submenu,
                     &toggle_description,
                     &toggle_options,
                     &PredefinedMenuItem::separator(app)?,
                     &appearance_menu,
+                    &PredefinedMenuItem::separator(app)?,
+                    &reset_layout,
                 ],
             )?;
 
-            let menu = Menu::with_items(
-                app,
-                &[&file_menu, &edit_menu, &view_menu],
-            )?;
-
+            let menu = Menu::with_items(app, &[&file_menu, &edit_menu, &view_menu])?;
             app.set_menu(menu)?;
 
-            // ── Handle menu events ─────────────────────────────────────────
-            // Emit events to the main window so React can listen to them.
-            // We clone the appearance items so we can update their checked
-            // state from within the handler (radio-style mutual exclusion).
+            // ── Menu event handler ─────────────────────────────────────────
+            let app_handle = app.handle().clone();
             let al = appearance_light.clone();
             let ad = appearance_dark.clone();
             let as_ = appearance_system.clone();
+            let rf = ref_full.clone();
+            let rc = ref_compact.clone();
+            let ro = ref_off.clone();
 
             app.on_menu_event(move |app, event| {
                 let window = app.get_webview_window("main");
-
-                let emit = |event_name: &str, payload: &str| {
+                let emit = |name: &str, payload: &str| {
                     if let Some(ref w) = window {
-                        let _ = Emitter::emit(w, event_name, payload.to_string());
+                        let _ = Emitter::emit(w, name, payload.to_string());
                     }
                 };
 
                 match event.id().as_ref() {
-                    "toggle_reference" => emit("menu:toggle", "reference"),
                     "toggle_description" => emit("menu:toggle", "description"),
-                    "toggle_options" => emit("menu:toggle", "options"),
+                    "toggle_options"     => emit("menu:toggle", "options"),
+                    "reset_layout"       => {
+                        // Reset reference to Full
+                        let _ = rf.set_checked(true);
+                        let _ = rc.set_checked(false);
+                        let _ = ro.set_checked(false);
+                        emit("menu:reset_layout", "");
+                    }
 
+                    // Pattern Reference radio
+                    "ref_full" => {
+                        let _ = rf.set_checked(true);
+                        let _ = rc.set_checked(false);
+                        let _ = ro.set_checked(false);
+                        emit("menu:reference", "full");
+                    }
+                    "ref_compact" => {
+                        let _ = rf.set_checked(false);
+                        let _ = rc.set_checked(true);
+                        let _ = ro.set_checked(false);
+                        emit("menu:reference", "compact");
+                    }
+                    "ref_off" => {
+                        let _ = rf.set_checked(false);
+                        let _ = rc.set_checked(false);
+                        let _ = ro.set_checked(true);
+                        emit("menu:reference", "off");
+                    }
+
+                    // Appearance radio
                     "appearance_light" => {
                         let _ = al.set_checked(true);
                         let _ = ad.set_checked(false);
@@ -213,6 +242,9 @@ pub fn run() {
                     }
                     _ => {}
                 }
+
+                // Keep app_handle alive
+                let _ = &app_handle;
             });
 
             Ok(())

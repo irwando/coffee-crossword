@@ -231,8 +231,20 @@ npm run dev
 - [x] Variant grouping implemented in Rust engine (deduplication)
 - [x] Variant display modes (show all / hover / hidden)
 - [x] Pattern input autocorrect disabled
-- [ ] Template matching implemented in Rust
-- [ ] Template matching wired to React UI
+- [x] Template matching implemented in Rust
+- [X] Template matching wired to React UI
+---
+
+## UI Features Implemented
+- Native macOS menu bar (File, Edit, View)
+- View menu: panel toggles (Pattern Reference, Description, Options), Appearance submenu (Light/Dark/System), Reset to Default Layout (pending wire-up in Rust)
+- Dark mode with Apple-style neutral grays
+- Pattern history (100 entries, persisted)
+- Word selection in list and grid view (click, Cmd+click, Shift+click)
+- Right-click context menu (Copy enabled, others placeholders)
+- Status bar showing selection count
+- Settings persistence via tauri-plugin-store
+- Scrollable results with fixed header
 
 ---
 
@@ -272,7 +284,16 @@ npm run dev
 | 2026-03 | Replace TSD with open format | TSD is proprietary binary; open format enables tooling and contribution |
 | 2026-03 | Start with Mac + browser, defer mobile | Reduces scope; mobile can reuse engine later |
 | 2026-03 | React over Flutter for UI | Simpler stack for PM-led development; web skills transfer |
+| 2026-03 | Remove StrictModeDouble-invoked effects broke Tauri menu event listeners |
+| 2026-03 | Manual dark mode CSS overridesTailwind v4 dark: variant not generating correctly with @tailwindcss/vite |
+| 2026-03 | Apple neutral grays for dark modeBlue-tinted grays looked wrong; #1c1c1e/#2c2c2e/#3a3a3c match macOS |
 
+---
+## Bugs Fixed
+
+- Anagram wildcard (* in anagram part) now correctly requires all specified letters and allows unlimited extras
+- Template+anagram free position calculation fixed
+- StrictMode removed (caused double event listener registration)
 ---
 
 ## Normalization setting
@@ -366,4 +387,4 @@ RTF definitions: `rich|{\rtf1 \b rich\b0 ...}`
 - SCOWL word lists: http://wordlist.aspell.net/
 - WordNet: https://wordnet.princeton.edu/
 - Tauri docs: https://tauri.app/
-- Rust book: https://doc.rust-lang.org/book/
+- Rust book: https://doc.rust-lang.org/book- /

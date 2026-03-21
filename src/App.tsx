@@ -417,6 +417,7 @@ export default function App() {
               <span><span className="text-gray-700 dark:text-gray-300">q???k</span> → quick, quack… (? = any)</span>
               <span><span className="text-gray-700 dark:text-gray-300">;acenrt.</span> → anagram + 1 blank</span>
               <span><span className="text-gray-700 dark:text-gray-300">e....;cats</span> → template + anagram</span>
+              <span><span className="text-gray-700 dark:text-gray-300">[aeiou]...</span> → vowel + 3 letters</span>     
             </div>
           </div>
         )}
@@ -641,11 +642,10 @@ interface ContextMenuPopupProps {
   selectedWords: Set<string>;
   singleWord: string | null;
   onCopy: () => void;
-  onSearchFor: (word: string) => void;
   onClose: () => void;
 }
 
-function ContextMenuPopup({ x, y, selectedWords, singleWord, onCopy, onClose }: ContextMenuPopupProps) {
+function ContextMenuPopup({ x, y, onCopy}: ContextMenuPopupProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Adjust position if menu would go off screen

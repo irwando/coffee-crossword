@@ -18,6 +18,8 @@ pub enum TemplateChar {
     Any,
     /// A wildcard * — matches zero or more letters
     Wildcard,
+    /// A choice list [abc] or negated [^abc]
+    ChoiceList(Vec<char>, bool), // (letters, negated)
 }
 
 /// A group of words that normalize to the same canonical form.
@@ -61,12 +63,26 @@ pub fn parse_pattern(input: &str) -> Option<Pattern> {
         let mut dot_count = 0usize;
         let mut has_wildcard = false;
 
-        for ch in anagram_part.chars() {
-            match ch {
-                '*' => has_wildcard = true,
-                '.' | '?' => dot_count += 1,
-                c if c.is_alphabetic() => anagram_letters.push(c.to_ascii_lowercase()),
-                _ => {}
+        let anagram_chars: Vec<char> = anagram_part.chars().collect();
+        let mut i = 0;
+        while i < anagram_chars.len() {
+            match anagram_chars[i] {
+                '*' => { has_wildcard = true; i += 1; }
+                '.' | '?' => { dot_count += 1; i += 1; }
+                '[' => {
+                    // Choice list in anagram counts as one dot (one unknown letter slot)
+                    dot_count += 1;
+                    i += 1;
+                    while i < anagram_chars.len() && anagram_chars[i] != ']' {
+                        i += 1;
+                    }
+                    if i < anagram_chars.len() { i += 1; } // skip ']'
+                }
+                c if c.is_alphabetic() => {
+                    anagram_letters.push(c.to_ascii_lowercase());
+                    i += 1;
+                }
+                _ => { i += 1; }
             }
         }
 
@@ -84,13 +100,31 @@ pub fn parse_pattern(input: &str) -> Option<Pattern> {
 }
 
 fn parse_template(s: &str) -> Vec<TemplateChar> {
-    s.chars()
-        .map(|ch| match ch {
-            '.' | '?' => TemplateChar::Any,
-            '*' => TemplateChar::Wildcard,
-            c => TemplateChar::Literal(c.to_ascii_lowercase()),
-        })
-        .collect()
+    let mut result = Vec::new();
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '.' | '?' => { result.push(TemplateChar::Any); i += 1; }
+            '*' => { result.push(TemplateChar::Wildcard); i += 1; }
+            '[' => {
+                i += 1; // skip '['
+                let negated = i < chars.len() && chars[i] == '^';
+                if negated { i += 1; }
+                let mut letters = Vec::new();
+                while i < chars.len() && chars[i] != ']' {
+                    if chars[i].is_alphabetic() {
+                        letters.push(chars[i].to_ascii_lowercase());
+                    }
+                    i += 1;
+                }
+                if i < chars.len() { i += 1; } // skip ']'
+                result.push(TemplateChar::ChoiceList(letters, negated));
+            }
+            c => { result.push(TemplateChar::Literal(c.to_ascii_lowercase())); i += 1; }
+        }
+    }
+    result
 }
 
 fn template_fixed_len(template: &[TemplateChar]) -> usize {
@@ -98,6 +132,18 @@ fn template_fixed_len(template: &[TemplateChar]) -> usize {
         .iter()
         .filter(|t| !matches!(t, TemplateChar::Wildcard))
         .count()
+}
+
+fn char_matches_template_char(ch: char, t: &TemplateChar) -> bool {
+    match t {
+        TemplateChar::Literal(c) => *c == ch,
+        TemplateChar::Any => true,
+        TemplateChar::Wildcard => unreachable!(),
+        TemplateChar::ChoiceList(letters, negated) => {
+            let contains = letters.contains(&ch);
+            if *negated { !contains } else { contains }
+        }
+    }
 }
 
 fn matches_template(word: &str, template: &[TemplateChar]) -> bool {
@@ -108,10 +154,8 @@ fn matches_template(word: &str, template: &[TemplateChar]) -> bool {
         if word_chars.len() != template.len() {
             return false;
         }
-        return template.iter().zip(word_chars.iter()).all(|(t, w)| match t {
-            TemplateChar::Literal(c) => c == w,
-            TemplateChar::Any => true,
-            TemplateChar::Wildcard => unreachable!(),
+        return template.iter().zip(word_chars.iter()).all(|(t, w)| {
+            char_matches_template_char(*w, t)
         });
     }
 
@@ -131,6 +175,12 @@ fn matches_template_wildcard(word: &[char], template: &[TemplateChar]) -> bool {
         }
         TemplateChar::Any => {
             !word.is_empty() && matches_template_wildcard(&word[1..], &template[1..])
+        }
+        TemplateChar::ChoiceList(letters, negated) => {
+            if word.is_empty() { return false; }
+            let contains = letters.contains(&word[0]);
+            let matches = if *negated { !contains } else { contains };
+            matches && matches_template_wildcard(&word[1..], &template[1..])
         }
         TemplateChar::Wildcard => {
             for i in 0..=word.len() {
@@ -397,7 +447,11 @@ mod tests {
             "drinker", "beside", "bodice", "edible",
             "maharaja", "quick", "quack", "quirk", "quark",
             "escalator", "explorer's", "Escargots", "escargots", "escargot's",
-            "catch-22", "escapists",
+            "catch-22", "escapists", "ultra",
+            // extras for choice list tests
+            "arts", "rest", "rust", "sort", "star", "stir",
+            "llama", "lynch", "lymph", "lyric",
+            "yoga", "zinc",
         ]
         .into_iter()
         .map(String::from)
@@ -499,6 +553,17 @@ mod tests {
     }
 
     #[test]
+    fn test_anagram_wildcard_unlimited() {
+        let words = word_list();
+        let pattern = parse_pattern(";cats*").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        let keys: Vec<&str> = results.iter().map(|r| r.normalized.as_str()).collect();
+        assert!(keys.contains(&"escalator"), "should find escalator");
+        assert!(keys.contains(&"escapists"), "should find escapists");
+        assert!(results.len() >= 2, "expected multiple matches, got {}", results.len());
+    }
+
+    #[test]
     fn test_deduplication_groups_variants() {
         let words = word_list();
         let pattern = parse_pattern("e........").unwrap();
@@ -531,17 +596,92 @@ mod tests {
         }
     }
 
+    // ── Choice list tests ─────────────────────────────────────────────────
+
     #[test]
-    fn test_anagram_wildcard_unlimited() {
+    fn test_choice_list_vowel_start() {
         let words = word_list();
-        let pattern = parse_pattern(";cats*").unwrap();
+        // 5-letter words starting with a vowel
+        let pattern = parse_pattern("[aeiou]....").unwrap();
         let results = search(&words, &pattern, 1, 50, true);
-        let keys: Vec<&str> = results.iter().map(|r| r.normalized.as_str()).collect();
-        // escalator contains c, a, t, s plus extra letters
-        assert!(keys.contains(&"escalator"), "should find escalator");
-        // escapists contains c, a, t, s plus extra letters  
-        assert!(keys.contains(&"escapists"), "should find escapists");
-        // should find more than just exact anagrams
-        assert!(results.len() >=2, "expected many matches, got {}", results.len());
+        assert!(!results.is_empty(), "should find vowel-starting 5-letter words");
+        for r in &results {
+            assert_eq!(r.normalized.len(), 5, "wrong length: {}", r.normalized);
+            assert!("aeiou".contains(r.normalized.chars().next().unwrap()),
+                "should start with vowel: {}", r.normalized);
+        }
+    }
+
+    #[test]
+    fn test_choice_list_negated_consonant_start() {
+        let words = word_list();
+        // 4-letter words starting with a consonant
+        let pattern = parse_pattern("[^aeiou]...").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        assert!(!results.is_empty(), "should find consonant-starting 4-letter words");
+        for r in &results {
+            assert_eq!(r.normalized.len(), 4, "wrong length: {}", r.normalized);
+            assert!(!"aeiou".contains(r.normalized.chars().next().unwrap()),
+                "should start with consonant: {}", r.normalized);
+        }
+    }
+
+    #[test]
+    fn test_choice_list_middle_position() {
+        let words = word_list();
+        // 3-letter words with a vowel in the middle
+        let pattern = parse_pattern(".[aeiou].").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        assert!(!results.is_empty(), "should find 3-letter words with vowel in middle");
+        for r in &results {
+            assert_eq!(r.normalized.len(), 3, "wrong length: {}", r.normalized);
+            assert!("aeiou".contains(r.normalized.chars().nth(1).unwrap()),
+                "middle should be vowel: {}", r.normalized);
+        }
+    }
+
+    #[test]
+    fn test_choice_list_end_position() {
+        let words = word_list();
+        // words ending with x, y, or z (yoga ends in 'a', zinc ends in 'c' — use 'c' or 'k')
+        // quack, quick, quirk, quark all end in 'k'
+        let pattern = parse_pattern("....[ck]").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        assert!(!results.is_empty(), "should find 5-letter words ending in c or k");
+        for r in &results {
+            assert_eq!(r.normalized.len(), 5, "wrong length: {}", r.normalized);
+            let last = r.normalized.chars().last().unwrap();
+            assert!("ck".contains(last), "should end in c or k: {}", r.normalized);
+        }
+    }
+
+    #[test]
+    fn test_choice_list_in_anagram() {
+        let words = word_list();
+        // anagram of str + any vowel — 4-letter words containing s, t, r and a vowel
+        let pattern = parse_pattern(";str[aeiou]").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        assert!(!results.is_empty(), "should find anagram results with choice list");
+        // all results should be 4 letters (3 required + 1 from choice list)
+        for r in &results {
+            assert_eq!(r.normalized.len(), 4,
+                "wrong length for anagram+choice: {}", r.normalized);
+        }
+    }
+
+    #[test]
+    fn test_choice_list_with_template_and_anagram() {
+        let words = word_list();
+        // 8-letter words starting with 'e' or 'a', containing letters 'r', 'c', 't'
+        let pattern = parse_pattern("[ea]......;rct").unwrap();
+        let results = search(&words, &pattern, 1, 50, true);
+        for r in &results {
+            assert_eq!(r.normalized.len(), 8, "wrong length: {}", r.normalized);
+            let first = r.normalized.chars().next().unwrap();
+            assert!("ea".contains(first), "should start with e or a: {}", r.normalized);
+            assert!(r.normalized.contains('r'), "should contain r: {}", r.normalized);
+            assert!(r.normalized.contains('c'), "should contain c: {}", r.normalized);
+            assert!(r.normalized.contains('t'), "should contain t: {}", r.normalized);
+        }
     }
 }

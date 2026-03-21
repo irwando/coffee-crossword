@@ -102,8 +102,17 @@ standards. Tauri lets us ship one web UI everywhere.
 │   ├── src/
 │   │   ├── main.rs            ← Tauri entry point
 │   │   ├── lib.rs             ← app state, menu setup, Tauri commands
-│   │   ├── engine.rs          ← all pattern matching logic + tests (split planned before Phase 3)
-│   │   └── bin/
+        └── engine/            ← pattern matching (split into modules)
+            ├── mod.rs         ← public API
+            ├── ast.rs         ← types
+            ├── parser.rs      ← parsing
+            ├── matcher.rs     ← matching
+            ← normalize.rs     ← normalization
+            ├── grouping.rs    ← result grouping
+            ├── describe.rs    ← pattern descriptions
+            ├── tests.rs       ← all tests
+            └── test_utils.rs  ← shared test helpers│   
+    │   └── bin/
 │   │       └── ccli.rs        ← CLI binary
 │   ├── capabilities/
 │   │   └── default.json       ← plugin permissions (update when adding plugins)
@@ -170,23 +179,7 @@ Everything else in `engine.rs` is private. `LogicalExpr`, `Pattern`, `TemplateCh
 
 ## Planned: engine.rs module split (before Phase 3)
 
-`engine.rs` is currently a single file (~900 lines). Before adding Phase 3 features,
-split it into a module directory:
-
-```
-engine/
-├── mod.rs        ← public API (search_words, validate_pattern, describe_pattern, normalize)
-├── ast.rs        ← LogicalExpr, Pattern, TemplateChar types
-├── parser.rs     ← parse_logical, parse_pattern, parse_template, expand_macros
-├── matcher.rs    ← matches_template, matches_anagram_*, eval_expr, MatchContext
-├── normalize.rs  ← normalize(), matching_form()
-├── grouping.rs   ← RawMatch, grouping/dedup logic, MatchGroup construction
-├── describe.rs   ← describe_pattern, describe_simple, helper functions
-├── tests.rs      ← all tests, explicit imports
-└── test_utils.rs ← shared test helpers (word_list, keys); only compiled in test builds
-```
-
-This split is committed — do it before starting Phase 3 work.
+Engine module split is complete. See repository structure above.
 
 ---
 
@@ -327,7 +320,7 @@ english   /path/to/dictionaries/english.txt   (101368 words)
 - [x] Logical operations: `&`, `|`, `!` with grouping via `()`
 
 ### Pre-Phase 3 — planned refactoring
-- [ ] Split `engine.rs` into module directory (see planned split above)
+- [x] Split `engine.rs` into module directory (see planned split above)
 - [ ] README written for open source release
 
 ### Phase 3 — definitions and lookup
@@ -641,6 +634,7 @@ cd src-tauri && ./target/debug/ccli 'c* & !cat*'
 | 2026-03 | pub mod engine in lib.rs | CLI binary needs to import from engine; private mod prevents cross-binary access |
 | 2026-03 | Delay App.tsx component split until Phase 3 | No meaningful architectural seam exists yet; definition window is the natural boundary |
 | 2026-03 | Vec<MatchGroup> return type (not streaming) | Current scale (~100k words, hundreds of results) doesn't warrant streaming complexity; design toward it |
+| 2026-03 | mod_pub alias in engine/mod.rs | Tests need to import public API functions; mod_pub avoids ambiguity with direct module paths |
 
 ---
 
@@ -679,3 +673,7 @@ cd src-tauri && ./target/debug/ccli 'c* & !cat*'
 - Rust book: https://doc.rust-lang.org/book/
 - Clap docs: https://docs.rs/clap/latest/clap/
 - Proptest (property-based testing): https://docs.rs/proptest/latest/proptest/
+
+## Deferred (carry into next conversation)
+- ccli --normalize help text: add "e.g. --normalize false" to description
+- App.tsx internal section comment headers (// ── Search state ── etc.)

@@ -46,6 +46,10 @@ pub(crate) enum TemplateChar {
     ChoiceList(Vec<char>, bool), // (letters, negated)
     /// A letter variable — digit 0-9; same digit must match same letter
     Variable(u8),
+    /// A literal punctuation character that must match exactly
+    Punct(char),
+    /// A letter matched case-sensitively (produced by \A, \b etc.)
+    CasedLiteral(char),
     /// A sub-pattern — switches mode: anagram sub-pattern within a template
     /// The usize is the number of characters this sub-pattern consumes
     SubPattern(SubPattern),

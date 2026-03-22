@@ -16,6 +16,14 @@ pub(crate) fn describe_pattern(pattern: &str) -> Option<String> {
     if input.contains(" & ") || input.contains(" | ") || input.contains('!') {
         return Some("Complex pattern".to_string());
     }
+    //Sub-patterns are also complex — defer full description
+    if input.contains('(') {
+        return Some("Sub-pattern".to_string());
+    }
+    // Puncutuation Pattern 
+    if input.contains('\\') || input.chars().any(|c| !c.is_alphanumeric() && !"*?;.@#[]^|&!()".contains(c)) {
+        return Some("Punctuation pattern".to_string());
+    }
     // Validate the pattern parses before describing it
     parse_logical(input)?;
     Some(describe_simple(input))

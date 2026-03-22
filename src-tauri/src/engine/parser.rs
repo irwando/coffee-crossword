@@ -65,16 +65,12 @@ fn parse_not(input: &str) -> Option<LogicalExpr> {
 }
 
 /// Parse a single pattern or parenthesized logical group.
-/// Note: () used for sub-patterns is handled inside parse_template/parse_anagram,
-/// not here. Here we only handle () as logical grouping when the whole
-/// input is wrapped in parens with logical operators inside.
 fn parse_atom(input: &str) -> Option<LogicalExpr> {
     let input = input.trim();
     // Only treat as logical grouping if the parens wrap the entire expression
     // and the contents contain logical operators
     if input.starts_with('(') && input.ends_with(')') {
         let inner = &input[1..input.len() - 1];
-        // Check if this looks like a logical expression (contains & or |)
         if inner.contains(" & ") || inner.contains(" | ") {
             if let Some(expr) = parse_or(inner) {
                 return Some(expr);
@@ -114,8 +110,6 @@ fn split_logical(input: &str, op: char) -> Vec<&str> {
 }
 
 /// Parse a single pattern (no logical operators).
-/// pub(crate) because describe.rs uses it indirectly via parse_logical,
-/// and tests may call it directly.
 pub(crate) fn parse_pattern(input: &str) -> Option<Pattern> {
     let input = input.trim();
     if input.is_empty() {
@@ -179,8 +173,7 @@ fn parse_anagram_part(anagram_part: &str) -> (Vec<AnagramChar>, usize, bool) {
                 i += 1;
             }
             '[' => {
-                // Choice list in anagram counts as one slot
-                
+                // Choice list tracked as AnagramChar::ChoiceList, not as a blank slot
                 i += 1;
                 let negated = i < chars.len() && chars[i] == '^';
                 if negated {
@@ -203,7 +196,7 @@ fn parse_anagram_part(anagram_part: &str) -> (Vec<AnagramChar>, usize, bool) {
                 i += 1;
                 let is_anagram_sub = i < chars.len() && chars[i] == ';';
                 if is_anagram_sub {
-                    i += 1; // skip ;
+                    i += 1;
                 }
                 let mut sub_chars = Vec::new();
                 let mut depth = 1i32;
@@ -222,7 +215,6 @@ fn parse_anagram_part(anagram_part: &str) -> (Vec<AnagramChar>, usize, bool) {
                 }
                 let sub_str: String = sub_chars.into_iter().collect();
                 if is_anagram_sub {
-                    // (;xxx) in anagram — letters must appear as anagram within word
                     let letters: Vec<char> = sub_str
                         .chars()
                         .filter(|c| c.is_alphabetic())
@@ -230,7 +222,6 @@ fn parse_anagram_part(anagram_part: &str) -> (Vec<AnagramChar>, usize, bool) {
                         .collect();
                     anagram_chars.push(AnagramChar::SubPattern(SubPattern::AnagramInAnagram(letters)));
                 } else {
-                    // (xxx) in anagram — letters must appear consecutively in order
                     let template_chars = parse_template(&sub_str);
                     anagram_chars.push(AnagramChar::SubPattern(SubPattern::Template(template_chars)));
                 }
@@ -248,6 +239,12 @@ fn parse_anagram_part(anagram_part: &str) -> (Vec<AnagramChar>, usize, bool) {
     (anagram_chars, dot_count, has_wildcard)
 }
 
+/// Returns true if a character has special meaning in patterns and must be
+/// escaped with \ to be matched literally.
+fn is_metacharacter(ch: char) -> bool {
+    matches!(ch, '.' | '?' | '*' | ';' | '[' | ']' | '^' | '(' | ')' | '&' | '|' | '!' | '@' | '#' | '0'..='9')
+}
+
 /// Parse a template string into a Vec<TemplateChar>.
 /// pub(crate) — used by parse_pattern and potentially tests.
 pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
@@ -256,6 +253,21 @@ pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
     let mut i = 0;
     while i < chars.len() {
         match chars[i] {
+            '\\' => {
+                // Escape character — next char is matched literally or case-sensitively
+                i += 1;
+                if i < chars.len() {
+                    let next = chars[i];
+                    if next.is_alphabetic() {
+                        // \A matches capital A exactly (case-sensitive)
+                        result.push(TemplateChar::CasedLiteral(next));
+                    } else {
+                        // \! \- \' etc — match that punctuation or metachar literally
+                        result.push(TemplateChar::Punct(next));
+                    }
+                    i += 1;
+                }
+            }
             '.' | '?' => {
                 result.push(TemplateChar::Any);
                 i += 1;
@@ -287,7 +299,7 @@ pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
                 i += 1;
                 let is_anagram_sub = i < chars.len() && chars[i] == ';';
                 if is_anagram_sub {
-                    i += 1; // skip ;
+                    i += 1;
                 }
                 let mut sub_chars = Vec::new();
                 let mut depth = 1i32;
@@ -306,7 +318,6 @@ pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
                 }
                 let sub_str: String = sub_chars.into_iter().collect();
                 if is_anagram_sub {
-                    // (;xxx) in template — next N chars must be anagram of xxx
                     let letters: Vec<char> = sub_str
                         .chars()
                         .filter(|c| c.is_alphabetic())
@@ -314,8 +325,6 @@ pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
                         .collect();
                     result.push(TemplateChar::SubPattern(SubPattern::Anagram(letters)));
                 } else {
-                    // (xxx) in template — treated as inline template (no mode switch)
-                    // This shouldn't normally appear but handle gracefully
                     let inner = parse_template(&sub_str);
                     result.extend(inner);
                 }
@@ -324,8 +333,17 @@ pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
                 result.push(TemplateChar::Variable(c as u8 - b'0'));
                 i += 1;
             }
-            c => {
+            c if c.is_alphabetic() => {
                 result.push(TemplateChar::Literal(c.to_ascii_lowercase()));
+                i += 1;
+            }
+            c if !is_metacharacter(c) => {
+                // Non-letter, non-digit, non-metacharacter — treat as literal punctuation
+                result.push(TemplateChar::Punct(c));
+                i += 1;
+            }
+            _ => {
+                // Remaining metacharacters in template context — skip
                 i += 1;
             }
         }

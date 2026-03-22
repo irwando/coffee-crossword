@@ -1,12 +1,16 @@
 // ── Matcher ───────────────────────────────────────────────────────────────────
 // Evaluates LogicalExpr and Pattern against individual words.
 // MatchContext is private to this module — no other module needs it.
+//
+// Raw word threading: when a pattern contains Punct or CasedLiteral chars,
+// matching must happen against the original word (lowercased only, punctuation
+// preserved) rather than the fully normalized form. grouping.rs passes both
+// forms to eval_expr; eval_pattern selects which to use based on pattern content.
 
 use std::collections::HashMap;
 use crate::engine::ast::{AnagramChar, LogicalExpr, Pattern, SubPattern, TemplateChar};
 
 /// Carries letter variable bindings through template matching.
-/// Private to matcher.rs — callers use eval_expr() which handles context internally.
 #[derive(Clone)]
 struct MatchContext {
     variables: HashMap<u8, char>,
@@ -17,8 +21,6 @@ impl MatchContext {
         MatchContext { variables: HashMap::new() }
     }
 
-    /// Try to bind a variable to a character.
-    /// Returns false if already bound to a different character.
     fn bind(&mut self, var: u8, ch: char) -> bool {
         match self.variables.get(&var) {
             Some(&existing) => existing == ch,
@@ -30,22 +32,29 @@ impl MatchContext {
     }
 }
 
-/// Evaluate a logical expression against a single (already normalized) word.
-/// Returns Some(balance_string) if the word matches, None if it doesn't.
-/// pub(crate) — called from grouping.rs's internal search().
-pub(crate) fn eval_expr(word: &str, word_len: usize, expr: &LogicalExpr) -> Option<String> {
+/// Returns true if the template contains any Punct or CasedLiteral chars,
+/// meaning we must match against the raw (unpunctuated) word form.
+fn template_needs_raw(template: &[TemplateChar]) -> bool {
+    template.iter().any(|t| matches!(t, TemplateChar::Punct(_) | TemplateChar::CasedLiteral(_)))
+}
+
+/// Evaluate a logical expression against a word.
+/// raw_word: lowercased only, punctuation preserved.
+/// norm_word: fully normalized (letters/digits only, lowercased).
+/// pub(crate) — called from grouping.rs.
+pub(crate) fn eval_expr(raw_word: &str, norm_word: &str, word_len: usize, expr: &LogicalExpr) -> Option<String> {
     match expr {
-        LogicalExpr::Single(pattern) => eval_pattern(word, word_len, pattern),
+        LogicalExpr::Single(pattern) => eval_pattern(raw_word, norm_word, word_len, pattern),
         LogicalExpr::And(left, right) => {
-            eval_expr(word, word_len, left)?;
-            eval_expr(word, word_len, right)
+            eval_expr(raw_word, norm_word, word_len, left)?;
+            eval_expr(raw_word, norm_word, word_len, right)
         }
         LogicalExpr::Or(left, right) => {
-            eval_expr(word, word_len, left)
-                .or_else(|| eval_expr(word, word_len, right))
+            eval_expr(raw_word, norm_word, word_len, left)
+                .or_else(|| eval_expr(raw_word, norm_word, word_len, right))
         }
         LogicalExpr::Not(inner) => {
-            if eval_expr(word, word_len, inner).is_some() {
+            if eval_expr(raw_word, norm_word, word_len, inner).is_some() {
                 None
             } else {
                 Some(String::new())
@@ -54,9 +63,11 @@ pub(crate) fn eval_expr(word: &str, word_len: usize, expr: &LogicalExpr) -> Opti
     }
 }
 
-fn eval_pattern(word: &str, word_len: usize, pattern: &Pattern) -> Option<String> {
+fn eval_pattern(raw_word: &str, norm_word: &str, word_len: usize, pattern: &Pattern) -> Option<String> {
     match pattern {
         Pattern::Template(template) => {
+            // Use raw word if pattern contains punctuation or cased literals
+            let word = if template_needs_raw(template) { raw_word } else { norm_word };
             if matches_template(word, template) {
                 Some(String::new())
             } else {
@@ -64,28 +75,35 @@ fn eval_pattern(word: &str, word_len: usize, pattern: &Pattern) -> Option<String
             }
         }
         Pattern::Anagram(anagram_chars, dots, has_wildcard) => {
-            matches_anagram_exact(word, anagram_chars, *dots, *has_wildcard)
+            // Anagram matching always uses normalized word
+            matches_anagram_exact(norm_word, anagram_chars, *dots, *has_wildcard)
         }
         Pattern::TemplateWithAnagram(template, anagram_chars, dots) => {
+            let word = if template_needs_raw(template) { raw_word } else { norm_word };
             let has_wildcard = template.iter().any(|t| matches!(t, TemplateChar::Wildcard));
             let length_ok = if has_wildcard {
                 true
             } else {
-                word_len == template_fixed_len(template)
+                word.chars().count() == template_fixed_len(template)
             };
             if length_ok && matches_template(word, template) {
+                let wlen = word.chars().count();
                 let free_positions = if has_wildcard {
-                    // For wildcard templates, count non-subpattern free positions
                     let fixed_letters: usize = anagram_chars.iter().map(|ac| anagram_char_len(ac)).sum();
-                    word_len.saturating_sub(fixed_letters)
+                    wlen.saturating_sub(fixed_letters)
                 } else {
                     template
                         .iter()
-                        .filter(|t| !matches!(t, TemplateChar::Literal(_) | TemplateChar::SubPattern(_)))
+                        .filter(|t| !matches!(t,
+                            TemplateChar::Literal(_) |
+                            TemplateChar::Punct(_) |
+                            TemplateChar::CasedLiteral(_) |
+                            TemplateChar::SubPattern(_)
+                        ))
                         .count()
                 };
                 let effective_dots = Some(free_positions + dots.unwrap_or(0));
-                matches_anagram_within(word, anagram_chars, effective_dots)
+                matches_anagram_within(norm_word, anagram_chars, effective_dots)
             } else {
                 None
             }
@@ -93,7 +111,6 @@ fn eval_pattern(word: &str, word_len: usize, pattern: &Pattern) -> Option<String
     }
 }
 
-/// Returns the number of word characters an AnagramChar accounts for.
 fn anagram_char_len(ac: &AnagramChar) -> usize {
     match ac {
         AnagramChar::Letter(_) => 1,
@@ -121,7 +138,7 @@ fn template_fixed_len(template: &[TemplateChar]) -> usize {
 fn char_matches(ch: char, t: &TemplateChar, ctx: &mut MatchContext) -> bool {
     match t {
         TemplateChar::Literal(c) => *c == ch,
-        TemplateChar::Any => true,
+        TemplateChar::Any => ch.is_alphabetic() || ch.is_ascii_digit(),
         TemplateChar::Wildcard => unreachable!(),
         TemplateChar::SubPattern(_) => unreachable!("SubPattern spans multiple chars, handled separately"),
         TemplateChar::ChoiceList(letters, negated) => {
@@ -129,11 +146,11 @@ fn char_matches(ch: char, t: &TemplateChar, ctx: &mut MatchContext) -> bool {
             if *negated { !contains } else { contains }
         }
         TemplateChar::Variable(v) => ctx.bind(*v, ch),
+        TemplateChar::Punct(c) => *c == ch,
+        TemplateChar::CasedLiteral(c) => *c == ch, // caller passes raw char preserving case
     }
 }
 
-/// Check whether a slice of word chars matches a sub-pattern anagram.
-/// The word slice must be exactly letters.len() chars and contain exactly those letters.
 fn matches_subpattern_anagram(word_slice: &[char], letters: &[char]) -> bool {
     if word_slice.len() != letters.len() {
         return false;
@@ -152,13 +169,11 @@ fn matches_subpattern_anagram(word_slice: &[char], letters: &[char]) -> bool {
     true
 }
 
-/// Check whether word_slice matches a template sub-pattern consecutively.
 fn matches_subpattern_template(word_slice: &[char], template: &[TemplateChar]) -> bool {
     let mut ctx = MatchContext::new();
     matches_template_slice(word_slice, template, &mut ctx)
 }
 
-/// Match a word slice against a template (no wildcards expected in sub-templates).
 fn matches_template_slice(word: &[char], template: &[TemplateChar], ctx: &mut MatchContext) -> bool {
     if template.is_empty() {
         return word.is_empty();
@@ -278,8 +293,6 @@ fn matches_template_wildcard(
     }
 }
 
-/// Extract plain letters and sub-pattern constraints from anagram chars.
-/// Returns (plain_letters, template_subpatterns, anagram_subpatterns, blank_count, choice_slots)
 fn decompose_anagram_chars(
     anagram_chars: &[AnagramChar],
 ) -> (Vec<char>, Vec<Vec<TemplateChar>>, Vec<Vec<char>>, usize, Vec<(Vec<char>, bool)>) {
@@ -303,50 +316,12 @@ fn decompose_anagram_chars(
                 anagram_subs.push(letters.clone());
             }
             AnagramChar::SubPattern(SubPattern::AnagramInAnagram(letters)) => {
-                // Treat same as Anagram sub — letters must appear as anagram
                 anagram_subs.push(letters.clone());
             }
         }
     }
 
     (plain_letters, template_subs, anagram_subs, blank_count, choice_slots)
-}
-
-/// Check whether a sequence of template chars appears consecutively somewhere in word_chars.
-/// Returns the remaining chars after consuming the match, or None.
-fn find_template_sequence<'a>(
-    word_chars: &'a [char],
-    template: &[TemplateChar],
-) -> Option<(usize, usize)> {
-    // Returns (start_pos, end_pos) of the match within word_chars
-    let seq_len = template_fixed_len(template);
-    if seq_len == 0 {
-        return Some((0, 0));
-    }
-    for start in 0..=word_chars.len().saturating_sub(seq_len) {
-        if matches_subpattern_template(&word_chars[start..start + seq_len], template) {
-            return Some((start, start + seq_len));
-        }
-    }
-    None
-}
-
-/// Check whether a set of letters appears as an anagram somewhere in word_chars
-/// (i.e., the word contains all those letters, possibly scattered).
-/// Returns true if the word_chars contain all the letters in anagram_letters.
-fn word_contains_anagram_sub(word_chars: &[char], anagram_letters: &[char]) -> bool {
-    let mut available: HashMap<char, i32> = HashMap::new();
-    for &ch in word_chars {
-        *available.entry(ch).or_insert(0) += 1;
-    }
-    for &ch in anagram_letters {
-        let count = available.entry(ch).or_insert(0);
-        if *count <= 0 {
-            return false;
-        }
-        *count -= 1;
-    }
-    true
 }
 
 fn matches_anagram_exact(
@@ -360,7 +335,6 @@ fn matches_anagram_exact(
     let (plain_letters, template_subs, anagram_subs, _blank_count, choice_slots) =
         decompose_anagram_chars(anagram_chars);
 
-    // Calculate total required length from sub-patterns
     let sub_len: usize = template_subs.iter().map(|t| template_fixed_len(t)).sum::<usize>()
         + anagram_subs.iter().map(|a| a.len()).sum::<usize>();
     let total_required = plain_letters.len() + sub_len + choice_slots.len();
@@ -372,15 +346,12 @@ fn matches_anagram_exact(
         }
     }
 
-    // Check template sub-patterns: each must appear consecutively in the word
-    // We do this by marking used positions
     let mut used: Vec<bool> = vec![false; word_chars.len()];
 
     for tmpl in &template_subs {
         let seq_len = template_fixed_len(tmpl);
         let mut found = false;
         'outer: for start in 0..=word_chars.len().saturating_sub(seq_len) {
-            // Skip if any position already used
             if (start..start + seq_len).any(|i| used[i]) {
                 continue;
             }
@@ -397,32 +368,21 @@ fn matches_anagram_exact(
         }
     }
 
-    // Check anagram sub-patterns: the letters must all appear in the word
-    // Mark used positions for these too
     for sub_letters in &anagram_subs {
         let mut remaining = sub_letters.clone();
         let mut sub_used: Vec<usize> = Vec::new();
         for (i, &wc) in word_chars.iter().enumerate() {
-            if used[i] {
-                continue;
-            }
+            if used[i] { continue; }
             if let Some(pos) = remaining.iter().position(|&c| c == wc) {
                 remaining.remove(pos);
                 sub_used.push(i);
-                if remaining.is_empty() {
-                    break;
-                }
+                if remaining.is_empty() { break; }
             }
         }
-        if !remaining.is_empty() {
-            return None;
-        }
-        for i in sub_used {
-            used[i] = true;
-        }
+        if !remaining.is_empty() { return None; }
+        for i in sub_used { used[i] = true; }
     }
 
-    // Now check remaining (unused) positions against plain letters + blanks + choice
     let unused_chars: Vec<char> = word_chars
         .iter()
         .enumerate()
@@ -430,7 +390,6 @@ fn matches_anagram_exact(
         .map(|(_, &c)| c)
         .collect();
 
-    // Match choice slots against unused chars
     let mut remaining_unused = unused_chars.clone();
     for (choice_letters, negated) in &choice_slots {
         let pos = remaining_unused.iter().position(|&c| {
@@ -443,7 +402,6 @@ fn matches_anagram_exact(
         }
     }
 
-    // Now match remaining unused against plain letters + blanks
     let mut available: HashMap<char, i32> = HashMap::new();
     for &ch in &plain_letters {
         *available.entry(ch).or_insert(0) += 1;
@@ -459,20 +417,13 @@ fn matches_anagram_exact(
         }
     }
 
-    // All required plain letters must have been found
     let missing_required: i32 = available.values().filter(|&&v| v > 0).map(|&v| v).sum();
-    if missing_required > 0 {
-        return None;
-    }
+    if missing_required > 0 { return None; }
 
     let extra_count: i32 = needed.values().sum();
     if !has_wildcard {
-        let blanks_available = dot_count.unwrap_or(0) as i32
-            - choice_slots.len() as i32; // choice slots already consumed
-        let blanks_available = blanks_available.max(0);
-        if extra_count > blanks_available {
-            return None;
-        }
+        let blanks_available = (dot_count.unwrap_or(0) as i32 - choice_slots.len() as i32).max(0);
+        if extra_count > blanks_available { return None; }
     }
 
     let mut omitted: Vec<char> = available
@@ -491,15 +442,11 @@ fn matches_anagram_exact(
     let mut balance = String::new();
     if !omitted.is_empty() {
         balance.push('-');
-        for ch in &omitted {
-            balance.push(ch.to_ascii_uppercase());
-        }
+        for ch in &omitted { balance.push(ch.to_ascii_uppercase()); }
     }
     if !added.is_empty() {
         balance.push('+');
-        for ch in &added {
-            balance.push(ch.to_ascii_uppercase());
-        }
+        for ch in &added { balance.push(ch.to_ascii_uppercase()); }
     }
     Some(balance)
 }
@@ -514,50 +461,35 @@ fn matches_anagram_within(
     let (plain_letters, template_subs, anagram_subs, _blank_count, choice_slots) =
         decompose_anagram_chars(anagram_chars);
 
-    // Mark used positions for sub-patterns
     let mut used: Vec<bool> = vec![false; word_chars.len()];
 
     for tmpl in &template_subs {
         let seq_len = template_fixed_len(tmpl);
         let mut found = false;
         'outer: for start in 0..=word_chars.len().saturating_sub(seq_len) {
-            if (start..start + seq_len).any(|i| used[i]) {
-                continue;
-            }
+            if (start..start + seq_len).any(|i| used[i]) { continue; }
             if matches_subpattern_template(&word_chars[start..start + seq_len], tmpl) {
-                for i in start..start + seq_len {
-                    used[i] = true;
-                }
+                for i in start..start + seq_len { used[i] = true; }
                 found = true;
                 break 'outer;
             }
         }
-        if !found {
-            return None;
-        }
+        if !found { return None; }
     }
 
     for sub_letters in &anagram_subs {
         let mut remaining = sub_letters.clone();
         let mut sub_used: Vec<usize> = Vec::new();
         for (i, &wc) in word_chars.iter().enumerate() {
-            if used[i] {
-                continue;
-            }
+            if used[i] { continue; }
             if let Some(pos) = remaining.iter().position(|&c| c == wc) {
                 remaining.remove(pos);
                 sub_used.push(i);
-                if remaining.is_empty() {
-                    break;
-                }
+                if remaining.is_empty() { break; }
             }
         }
-        if !remaining.is_empty() {
-            return None;
-        }
-        for i in sub_used {
-            used[i] = true;
-        }
+        if !remaining.is_empty() { return None; }
+        for i in sub_used { used[i] = true; }
     }
 
     let unused_chars: Vec<char> = word_chars
@@ -567,7 +499,6 @@ fn matches_anagram_within(
         .map(|(_, &c)| c)
         .collect();
 
-    // Match choice slots
     let mut remaining_unused = unused_chars.clone();
     for (choice_letters, negated) in &choice_slots {
         let pos = remaining_unused.iter().position(|&c| {
@@ -595,38 +526,20 @@ fn matches_anagram_within(
         }
     }
 
-    // All required letters must have been consumed
     for &remaining in available.values() {
-        if remaining > 0 {
-            return None;
-        }
+        if remaining > 0 { return None; }
     }
 
     let effective_dots = dot_count.unwrap_or(0).saturating_sub(choice_slots.len());
-    if extra.len() > effective_dots {
-        return None;
-    }
+    if extra.len() > effective_dots { return None; }
 
     extra.sort();
     let balance = if extra.is_empty() {
         String::new()
     } else {
         let mut s = String::from("+");
-        for ch in &extra {
-            s.push(ch.to_ascii_uppercase());
-        }
+        for ch in &extra { s.push(ch.to_ascii_uppercase()); }
         s
     };
     Some(balance)
-}
-
-// Keep these for any code that might reference them, pointing at the helpers above
-#[allow(dead_code)]
-fn _find_template_sequence_unused(word_chars: &[char], template: &[TemplateChar]) -> Option<(usize, usize)> {
-    find_template_sequence(word_chars, template)
-}
-
-#[allow(dead_code)]
-fn _word_contains_anagram_sub_unused(word_chars: &[char], anagram_letters: &[char]) -> bool {
-    word_contains_anagram_sub(word_chars, anagram_letters)
 }

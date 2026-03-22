@@ -25,6 +25,8 @@ pub(crate) fn word_list() -> Vec<String> {
         "murmur", "beriberi",
         // Sub-pattern tests
         "patronage", "readable", "beryllium",
+        // Punctuation tests
+        "pick-me-up", "well-to-do", "fly-by-night", "dead end", "oh boy!", "Ascot",
         // Logical op tests
         "cats", "cast", "scat", "copycats", "scatter",
         "carbon", "carrot", "catch",

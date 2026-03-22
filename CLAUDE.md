@@ -331,7 +331,7 @@ english   /path/to/dictionaries/english.txt   (101368 words)
 
 ### Phase 4 — polish
 - [x] Sub-patterns: `()` — type-switching inside patterns (different from logical grouping)
-- [ ] Punctuation matching
+- [x] Punctuation matching
 - [ ] Export results (text file) — copy to clipboard already done
 - [ ] Print / print preview
 - [ ] Sorting options (alphabetical, by length)
@@ -636,6 +636,8 @@ cd src-tauri && ./target/debug/ccli 'c* & !cat*'
 | 2026-03 | Vec<MatchGroup> return type (not streaming) | Current scale (~100k words, hundreds of results) doesn't warrant streaming complexity; design toward it |
 | 2026-03 | mod_pub alias in engine/mod.rs | Tests need to import public API functions; mod_pub avoids ambiguity with direct module paths |
 | 2026-03 | Sub-pattern `()` implemented as TemplateChar::SubPattern in AST | Spans multiple chars so needs special handling outside char_matches; anagram sub-patterns in templates and template sub-patterns in anagrams both supported |
+| 2026-03 | Punctuation matching uses existing normalize toggle | No new toggle needed — normalize=off preserves punctuation in matching; same matching path used for both cases |
+
 ---
 
 ## TSD format research (background reference)

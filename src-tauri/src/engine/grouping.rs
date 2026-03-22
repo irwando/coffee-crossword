@@ -27,17 +27,21 @@ pub(crate) fn search(
     let mut raw: Vec<RawMatch> = Vec::new();
 
     for word in words {
-        let matched_form = matching_form(word, normalize_mode);
-        let word_len = matched_form.chars().count();
+        // norm_word: fully normalized (letters/digits only, lowercased)
+        // raw_word: lowercased only, punctuation preserved — used for punct patterns
+        let norm_word = matching_form(word, normalize_mode);
+        let raw_word = word.to_lowercase();
+
+        let word_len = norm_word.chars().count();
 
         if word_len < min_len || word_len > max_len {
             continue;
         }
 
-        if let Some(balance_str) = eval_expr(&matched_form, word_len, expr) {
+        if let Some(balance_str) = eval_expr(&raw_word, &norm_word, word_len, expr) {
             raw.push(RawMatch {
                 original: word.clone(),
-                normalized_key: matched_form,
+                normalized_key: norm_word,
                 balance: if balance_str.is_empty() { None } else { Some(balance_str) },
             });
         }

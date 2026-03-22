@@ -93,6 +93,7 @@ const REFERENCE_ROWS = [
   { feature: "Logical OR",       pattern: "c... | ...r",  match: "cast",          note: "matches either"             },
   { feature: "Logical NOT",      pattern: "c* & !cat*",   match: "cast",          note: "exclude matches"            },
   { feature: "Sub-pattern",      pattern: "...(;orange)", match: "patronage",     note: "() switches mode"           },
+  { feature: "Punctuation",      pattern: "...-..-....", match: "pick-me-up",    note: "normalize off to use"       },
 ];
 
 // ── Reference panels ──────────────────────────────────────────────────────────

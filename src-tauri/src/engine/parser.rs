@@ -2,7 +2,7 @@
 // Turns raw pattern strings into LogicalExpr / Pattern AST nodes.
 // All helpers below parse_logical are private — callers use parse_logical only.
 
-use crate::engine::ast::{LogicalExpr, Pattern, TemplateChar};
+use crate::engine::ast::{AnagramChar, LogicalExpr, Pattern, SubPattern, TemplateChar};
 
 /// Expand @ and # macros before any other parsing.
 /// pub(crate) because describe.rs also needs to expand macros before
@@ -64,20 +64,29 @@ fn parse_not(input: &str) -> Option<LogicalExpr> {
     parse_atom(input)
 }
 
-/// Parse a single pattern or parenthesized group
+/// Parse a single pattern or parenthesized logical group.
+/// Note: () used for sub-patterns is handled inside parse_template/parse_anagram,
+/// not here. Here we only handle () as logical grouping when the whole
+/// input is wrapped in parens with logical operators inside.
 fn parse_atom(input: &str) -> Option<LogicalExpr> {
     let input = input.trim();
+    // Only treat as logical grouping if the parens wrap the entire expression
+    // and the contents contain logical operators
     if input.starts_with('(') && input.ends_with(')') {
         let inner = &input[1..input.len() - 1];
-        if let Some(expr) = parse_or(inner) {
-            return Some(expr);
+        // Check if this looks like a logical expression (contains & or |)
+        if inner.contains(" & ") || inner.contains(" | ") {
+            if let Some(expr) = parse_or(inner) {
+                return Some(expr);
+            }
         }
     }
     let pattern = parse_pattern(input)?;
     Some(LogicalExpr::Single(pattern))
 }
 
-/// Split input on a logical operator character, respecting brackets and parens.
+/// Split input on a logical operator character, respecting brackets, parens,
+/// and sub-patterns.
 fn split_logical(input: &str, op: char) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth_bracket = 0i32;
@@ -113,48 +122,130 @@ pub(crate) fn parse_pattern(input: &str) -> Option<Pattern> {
         return None;
     }
 
-    if let Some(semi_pos) = input.find(';') {
+    if let Some(semi_pos) = find_anagram_semi(input) {
         let template_part = &input[..semi_pos];
         let anagram_part = &input[semi_pos + 1..];
 
-        let mut anagram_letters: Vec<char> = Vec::new();
-        let mut dot_count = 0usize;
-        let mut has_wildcard = false;
-
-        let anagram_chars: Vec<char> = anagram_part.chars().collect();
-        let mut i = 0;
-        while i < anagram_chars.len() {
-            match anagram_chars[i] {
-                '*' => { has_wildcard = true; i += 1; }
-                '.' | '?' => { dot_count += 1; i += 1; }
-                '[' => {
-                    // Choice list in anagram counts as one dot slot
-                    dot_count += 1;
-                    i += 1;
-                    while i < anagram_chars.len() && anagram_chars[i] != ']' {
-                        i += 1;
-                    }
-                    if i < anagram_chars.len() { i += 1; }
-                }
-                c if c.is_alphabetic() => {
-                    anagram_letters.push(c.to_ascii_lowercase());
-                    i += 1;
-                }
-                _ => { i += 1; }
-            }
-        }
-
+        let (anagram_chars, dot_count, has_wildcard) = parse_anagram_part(anagram_part);
         let dots = if dot_count > 0 { Some(dot_count) } else { None };
 
         if template_part.is_empty() {
-            return Some(Pattern::Anagram(anagram_letters, dots, has_wildcard));
+            return Some(Pattern::Anagram(anagram_chars, dots, has_wildcard));
         } else {
             let template = parse_template(template_part);
-            return Some(Pattern::TemplateWithAnagram(template, anagram_letters, dots));
+            return Some(Pattern::TemplateWithAnagram(template, anagram_chars, dots));
         }
     }
 
     Some(Pattern::Template(parse_template(input)))
+}
+
+/// Find the position of the anagram semicolon in a pattern.
+/// Must not be inside brackets or parens.
+fn find_anagram_semi(input: &str) -> Option<usize> {
+    let mut depth_bracket = 0i32;
+    let mut depth_paren = 0i32;
+    for (i, ch) in input.char_indices() {
+        match ch {
+            '[' => depth_bracket += 1,
+            ']' => depth_bracket -= 1,
+            '(' => depth_paren += 1,
+            ')' => depth_paren -= 1,
+            ';' if depth_bracket == 0 && depth_paren == 0 => return Some(i),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Parse the anagram part of a pattern (after the semicolon).
+/// Returns (anagram_chars, plain_dot_count, has_wildcard).
+fn parse_anagram_part(anagram_part: &str) -> (Vec<AnagramChar>, usize, bool) {
+    let mut anagram_chars: Vec<AnagramChar> = Vec::new();
+    let mut dot_count = 0usize;
+    let mut has_wildcard = false;
+
+    let chars: Vec<char> = anagram_part.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '*' => {
+                has_wildcard = true;
+                i += 1;
+            }
+            '.' | '?' => {
+                dot_count += 1;
+                anagram_chars.push(AnagramChar::Blank);
+                i += 1;
+            }
+            '[' => {
+                // Choice list in anagram counts as one slot
+                
+                i += 1;
+                let negated = i < chars.len() && chars[i] == '^';
+                if negated {
+                    i += 1;
+                }
+                let mut letters = Vec::new();
+                while i < chars.len() && chars[i] != ']' {
+                    if chars[i].is_alphabetic() {
+                        letters.push(chars[i].to_ascii_lowercase());
+                    }
+                    i += 1;
+                }
+                if i < chars.len() {
+                    i += 1;
+                }
+                anagram_chars.push(AnagramChar::ChoiceList(letters, negated));
+            }
+            '(' => {
+                // Sub-pattern inside anagram
+                i += 1;
+                let is_anagram_sub = i < chars.len() && chars[i] == ';';
+                if is_anagram_sub {
+                    i += 1; // skip ;
+                }
+                let mut sub_chars = Vec::new();
+                let mut depth = 1i32;
+                while i < chars.len() && depth > 0 {
+                    match chars[i] {
+                        '(' => { depth += 1; sub_chars.push(chars[i]); }
+                        ')' => {
+                            depth -= 1;
+                            if depth > 0 {
+                                sub_chars.push(chars[i]);
+                            }
+                        }
+                        c => sub_chars.push(c),
+                    }
+                    i += 1;
+                }
+                let sub_str: String = sub_chars.into_iter().collect();
+                if is_anagram_sub {
+                    // (;xxx) in anagram — letters must appear as anagram within word
+                    let letters: Vec<char> = sub_str
+                        .chars()
+                        .filter(|c| c.is_alphabetic())
+                        .map(|c| c.to_ascii_lowercase())
+                        .collect();
+                    anagram_chars.push(AnagramChar::SubPattern(SubPattern::AnagramInAnagram(letters)));
+                } else {
+                    // (xxx) in anagram — letters must appear consecutively in order
+                    let template_chars = parse_template(&sub_str);
+                    anagram_chars.push(AnagramChar::SubPattern(SubPattern::Template(template_chars)));
+                }
+            }
+            c if c.is_alphabetic() => {
+                anagram_chars.push(AnagramChar::Letter(c.to_ascii_lowercase()));
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    (anagram_chars, dot_count, has_wildcard)
 }
 
 /// Parse a template string into a Vec<TemplateChar>.
@@ -165,12 +256,20 @@ pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
     let mut i = 0;
     while i < chars.len() {
         match chars[i] {
-            '.' | '?' => { result.push(TemplateChar::Any); i += 1; }
-            '*' => { result.push(TemplateChar::Wildcard); i += 1; }
+            '.' | '?' => {
+                result.push(TemplateChar::Any);
+                i += 1;
+            }
+            '*' => {
+                result.push(TemplateChar::Wildcard);
+                i += 1;
+            }
             '[' => {
                 i += 1;
                 let negated = i < chars.len() && chars[i] == '^';
-                if negated { i += 1; }
+                if negated {
+                    i += 1;
+                }
                 let mut letters = Vec::new();
                 while i < chars.len() && chars[i] != ']' {
                     if chars[i].is_alphabetic() {
@@ -178,8 +277,48 @@ pub(crate) fn parse_template(s: &str) -> Vec<TemplateChar> {
                     }
                     i += 1;
                 }
-                if i < chars.len() { i += 1; }
+                if i < chars.len() {
+                    i += 1;
+                }
                 result.push(TemplateChar::ChoiceList(letters, negated));
+            }
+            '(' => {
+                // Sub-pattern in template: (;xxx) means anagram sub-pattern
+                i += 1;
+                let is_anagram_sub = i < chars.len() && chars[i] == ';';
+                if is_anagram_sub {
+                    i += 1; // skip ;
+                }
+                let mut sub_chars = Vec::new();
+                let mut depth = 1i32;
+                while i < chars.len() && depth > 0 {
+                    match chars[i] {
+                        '(' => { depth += 1; sub_chars.push(chars[i]); }
+                        ')' => {
+                            depth -= 1;
+                            if depth > 0 {
+                                sub_chars.push(chars[i]);
+                            }
+                        }
+                        c => sub_chars.push(c),
+                    }
+                    i += 1;
+                }
+                let sub_str: String = sub_chars.into_iter().collect();
+                if is_anagram_sub {
+                    // (;xxx) in template — next N chars must be anagram of xxx
+                    let letters: Vec<char> = sub_str
+                        .chars()
+                        .filter(|c| c.is_alphabetic())
+                        .map(|c| c.to_ascii_lowercase())
+                        .collect();
+                    result.push(TemplateChar::SubPattern(SubPattern::Anagram(letters)));
+                } else {
+                    // (xxx) in template — treated as inline template (no mode switch)
+                    // This shouldn't normally appear but handle gracefully
+                    let inner = parse_template(&sub_str);
+                    result.extend(inner);
+                }
             }
             c if c.is_ascii_digit() => {
                 result.push(TemplateChar::Variable(c as u8 - b'0'));

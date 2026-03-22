@@ -569,6 +569,129 @@ fn test_sort_by_length() {
     }
 }
 
+// ── Sub-patterns ──────────────────────────────────────────────────────────────
+
+/// ...(;orange) — 9-letter words where last 6 letters are anagram of ORANGE
+/// patronage: p-a-t-r-o-n-a-g-e
+/// last 6: o-n-a-g-e + r? let's verify: patronage = p,a,t,r,o,n,a,g,e (9 chars)
+/// last 6 = r,o,n,a,g,e = anagram of ORANGE ✓
+#[test]
+fn test_subpattern_anagram_in_template() {
+    let r = sw("...(;orange)");
+    let k = keys(&r);
+    assert!(k.contains(&"patronage"),
+        "patronage should match ...(;orange), got: {:?}", k);
+    // Verify all results: first 3 chars free, last 6 must be anagram of orange
+    for result in &r {
+        assert_eq!(result.normalized.len(), 9,
+            "wrong length: {}", result.normalized);
+        let last6: Vec<char> = result.normalized.chars().skip(3).collect();
+        let mut last6_sorted = last6.clone();
+        last6_sorted.sort();
+        let mut orange_sorted: Vec<char> = "orange".chars().collect();
+        orange_sorted.sort();
+        assert_eq!(last6_sorted, orange_sorted,
+            "last 6 of {} should be anagram of orange", result.normalized);
+    }
+}
+
+/// ;rebel(ada) — words with ADA in sequence AND letters of REBEL in any order
+/// readable: r,e,a,d,a,b,l,e — contains "ada" at positions 2-4, plus r,e,b,l,e ✓
+#[test]
+fn test_subpattern_template_in_anagram() {
+    let r = sw(";rebel(ada)");
+    let k = keys(&r);
+    assert!(k.contains(&"readable"),
+        "readable should match ;rebel(ada), got: {:?}", k);
+    // Verify all results contain "ada" consecutively
+    for result in &r {
+        assert!(result.normalized.contains("ada"),
+            "{} should contain 'ada' consecutively", result.normalized);
+        // Should also contain letters r,e,b,l,e (after removing ada)
+        let without_ada = result.normalized.replacen("ada", "", 1);
+        assert!(without_ada.contains('r'), "{} missing r", result.normalized);
+        assert!(without_ada.contains('e'), "{} missing e", result.normalized);
+        assert!(without_ada.contains('b'), "{} missing b", result.normalized);
+        assert!(without_ada.contains('l'), "{} missing l", result.normalized);
+    }
+}
+
+/// ;umber(;lily) — words with LILY as anagram AND letters of UMBER in any order
+/// beryllium: b,e,r,y,l,l,i,u,m — contains l,l,i,y (anagram of lily) + b,e,r,u,m ✓
+#[test]
+fn test_subpattern_anagram_in_anagram() {
+    let r = sw(";umber(;lily)");
+    let k = keys(&r);
+    assert!(k.contains(&"beryllium"),
+        "beryllium should match ;umber(;lily), got: {:?}", k);
+    // Verify all results contain letters of lily + umber
+    for result in &r {
+        let chars: Vec<char> = result.normalized.chars().collect();
+        // Must contain l,i,l,y (for lily) and b,e,r,u,m (for umber)
+        let mut available: std::collections::HashMap<char, i32> = std::collections::HashMap::new();
+        for &c in &chars {
+            *available.entry(c).or_insert(0) += 1;
+        }
+        for c in "lilumber".chars() {
+            let count = available.entry(c).or_insert(0);
+            assert!(*count > 0, "{} missing letter '{}'", result.normalized, c);
+            *count -= 1;
+        }
+    }
+}
+
+// ── Sub-pattern cross-product tests ──────────────────────────────────────────
+
+/// Sub-pattern combined with wildcard in template
+#[test]
+fn test_subpattern_with_wildcard() {
+    // *(;orange) — any prefix, then 6-letter anagram of orange
+    let r = sw("*(;orange)");
+    let k = keys(&r);
+    assert!(k.contains(&"patronage"),
+        "patronage should match *(;orange)");
+    for result in &r {
+        let len = result.normalized.len();
+        assert!(len >= 6, "word too short: {}", result.normalized);
+        let last6: Vec<char> = result.normalized.chars().skip(len - 6).collect();
+        let mut last6_sorted = last6.clone();
+        last6_sorted.sort();
+        let mut orange_sorted: Vec<char> = "orange".chars().collect();
+        orange_sorted.sort();
+        assert_eq!(last6_sorted, orange_sorted,
+            "last 6 of {} should be anagram of orange", result.normalized);
+    }
+}
+
+/// Sub-pattern combined with logical AND
+#[test]
+fn test_subpattern_with_logical_and() {
+    // ...(;orange) & p* — 9-letter words starting with p, last 6 anagram of orange
+    let r = sw("...(;orange) & p*");
+    let k = keys(&r);
+    assert!(k.contains(&"patronage"),
+        "patronage should match ...(;orange) & p*");
+    for result in &r {
+        assert!(result.normalized.starts_with('p'),
+            "{} should start with p", result.normalized);
+        assert_eq!(result.normalized.len(), 9);
+    }
+}
+
+/// Template sub-pattern combined with wildcard in anagram
+#[test]
+fn test_subpattern_template_in_anagram_with_wildcard() {
+    // ;rebel(ada)* — words with ADA consecutively AND letters of REBEL, plus any extras
+    let r = sw(";rebel(ada)*");
+    let k = keys(&r);
+    assert!(k.contains(&"readable"),
+        "readable should match ;rebel(ada)*");
+    for result in &r {
+        assert!(result.normalized.contains("ada"),
+            "{} should contain 'ada'", result.normalized);
+    }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 #[test]
@@ -579,6 +702,9 @@ fn test_validate_pattern_valid() {
     assert!(validate_pattern("c* & !cat*").is_ok());
     assert!(validate_pattern("@....").is_ok());
     assert!(validate_pattern("12321").is_ok());
+    assert!(validate_pattern("...(;orange)").is_ok());
+    assert!(validate_pattern(";rebel(ada)").is_ok());
+    assert!(validate_pattern(";umber(;lily)").is_ok());
 }
 
 #[test]
@@ -621,4 +747,11 @@ fn test_describe_pattern_macro() {
     use crate::engine::mod_pub::describe_pattern;
     let d = describe_pattern("@....").unwrap();
     assert!(d.contains("5") || d.contains("vowel"), "should describe macro: {}", d);
+}
+
+#[test]
+fn test_describe_pattern_subpattern() {
+    use crate::engine::mod_pub::describe_pattern;
+    let d = describe_pattern("...(;orange)").unwrap();
+    assert_eq!(d, "Sub-pattern");
 }

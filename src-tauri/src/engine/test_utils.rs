@@ -23,6 +23,8 @@ pub(crate) fn word_list() -> Vec<String> {
         // Letter variable tests — palindromes and tautonyms
         "level", "radar", "civic", "refer", "repaper",
         "murmur", "beriberi",
+        // Sub-pattern tests
+        "patronage", "readable", "beryllium",
         // Logical op tests
         "cats", "cast", "scat", "copycats", "scatter",
         "carbon", "carrot", "catch",

@@ -321,7 +321,7 @@ english   /path/to/dictionaries/english.txt   (101368 words)
 
 ### Pre-Phase 3 — planned refactoring
 - [x] Split `engine.rs` into module directory (see planned split above)
-- [ ] README written for open source release
+- [x] README written for open source release
 
 ### Phase 3 — definitions and lookup
 - [ ] Definition window
@@ -330,7 +330,7 @@ english   /path/to/dictionaries/english.txt   (101368 words)
 - [ ] Navigation history (back/forward)
 
 ### Phase 4 — polish
-- [ ] Sub-patterns: `()` — type-switching inside patterns (different from logical grouping)
+- [x] Sub-patterns: `()` — type-switching inside patterns (different from logical grouping)
 - [ ] Punctuation matching
 - [ ] Export results (text file) — copy to clipboard already done
 - [ ] Print / print preview
@@ -600,9 +600,9 @@ cd src-tauri && ./target/debug/ccli 'c* & !cat*'
 - [x] Settings persistence
 - [x] CLI binary (`ccli`) with full option set
 - [x] Public engine API (`search_words`, `validate_pattern`, `describe_pattern`, `normalize`)
-- [ ] engine.rs module split (before Phase 3)
-- [ ] README written
-- [ ] DICTIONARY_FORMAT.md written
+- [x] engine.rs module split (before Phase 3)
+- [x] README written
+- [x] DICTIONARY_FORMAT.md written
 - [ ] Phase 3: Definition window, full text search, external lookup
 - [ ] Phase 4: Sub-patterns, punctuation matching, sorting, filtering
 
@@ -635,7 +635,7 @@ cd src-tauri && ./target/debug/ccli 'c* & !cat*'
 | 2026-03 | Delay App.tsx component split until Phase 3 | No meaningful architectural seam exists yet; definition window is the natural boundary |
 | 2026-03 | Vec<MatchGroup> return type (not streaming) | Current scale (~100k words, hundreds of results) doesn't warrant streaming complexity; design toward it |
 | 2026-03 | mod_pub alias in engine/mod.rs | Tests need to import public API functions; mod_pub avoids ambiguity with direct module paths |
-
+| 2026-03 | Sub-pattern `()` implemented as TemplateChar::SubPattern in AST | Spans multiple chars so needs special handling outside char_matches; anagram sub-patterns in templates and template sub-patterns in anagrams both supported |
 ---
 
 ## TSD format research (background reference)

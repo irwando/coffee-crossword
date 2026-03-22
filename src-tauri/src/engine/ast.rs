@@ -29,8 +29,8 @@ pub(crate) enum LogicalExpr {
 pub(crate) enum Pattern {
     Template(Vec<TemplateChar>),
     /// letters, dot_count, has_wildcard
-    Anagram(Vec<char>, Option<usize>, bool),
-    TemplateWithAnagram(Vec<TemplateChar>, Vec<char>, Option<usize>),
+    Anagram(Vec<AnagramChar>, Option<usize>, bool),
+    TemplateWithAnagram(Vec<TemplateChar>, Vec<AnagramChar>, Option<usize>),
 }
 
 /// A single position in a template pattern.
@@ -46,4 +46,33 @@ pub(crate) enum TemplateChar {
     ChoiceList(Vec<char>, bool), // (letters, negated)
     /// A letter variable — digit 0-9; same digit must match same letter
     Variable(u8),
+    /// A sub-pattern — switches mode: anagram sub-pattern within a template
+    /// The usize is the number of characters this sub-pattern consumes
+    SubPattern(SubPattern),
+}
+
+/// A sub-pattern that switches matching mode.
+#[derive(Debug, Clone)]
+pub(crate) enum SubPattern {
+    /// (;xxx) inside a template — the next N chars must be an anagram of xxx
+    Anagram(Vec<char>),
+    /// (xxx) inside an anagram — the letters xxx must appear consecutively in order
+    Template(Vec<TemplateChar>),
+    /// (;xxx) inside an anagram — the letters xxx must appear as an anagram
+    /// (functionally same as adding to anagram letters, but explicit)
+    AnagramInAnagram(Vec<char>),
+}
+
+/// A single element in an anagram pattern.
+/// Most are just letters, but sub-patterns can appear too.
+#[derive(Debug, Clone)]
+pub(crate) enum AnagramChar {
+    /// A plain letter that must appear somewhere in the word
+    Letter(char),
+    /// A dot/? — one unknown letter (counts toward length)
+    Blank,
+    /// A choice list in the anagram — one letter from the set must appear
+    ChoiceList(Vec<char>, bool),
+    /// A sub-pattern — a sequence of letters that must appear consecutively
+    SubPattern(SubPattern),
 }

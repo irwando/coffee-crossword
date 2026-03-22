@@ -2,7 +2,8 @@
 // Generates human-readable descriptions of pattern strings.
 // All helpers are private — only describe_pattern is pub(crate).
 
-use crate::engine::parser::{expand_macros, parse_logical};
+use crate::engine::ast::{LogicalExpr, Pattern, SubPattern, TemplateChar};
+use crate::engine::parser::{expand_macros, parse_logical, parse_pattern};
 
 /// Return a human-readable description of a pattern string.
 /// Returns None if the pattern is empty or invalid.
@@ -12,98 +13,96 @@ pub(crate) fn describe_pattern(pattern: &str) -> Option<String> {
     if input.is_empty() {
         return None;
     }
-    // Stub for logical expressions — full description deferred
-    if input.contains(" & ") || input.contains(" | ") || input.contains('!') {
-        return Some("Complex pattern".to_string());
-    }
-    //Sub-patterns are also complex — defer full description
-    if input.contains('(') {
-        return Some("Sub-pattern".to_string());
-    }
-    // Puncutuation Pattern 
-    if input.contains('\\') || input.chars().any(|c| !c.is_alphanumeric() && !"*?;.@#[]^|&!()".contains(c)) {
-        return Some("Punctuation pattern".to_string());
-    }
+
     // Validate the pattern parses before describing it
-    parse_logical(input)?;
-    Some(describe_simple(input))
-}
-
-fn describe_simple(input: &str) -> String {
     let expanded = expand_macros(input);
-    let val = expanded.trim();
+    let expr = parse_logical(&expanded)?;
 
-    let semi_pos = val.find(';');
-
-    if let Some(semi) = semi_pos {
-        let tmpl = &val[..semi];
-        let anagram_part = &val[semi + 1..];
-        let (letters, dots, has_wildcard, choice_descs) =
-            parse_anagram_for_description(anagram_part);
-
-        if tmpl.is_empty() {
-            // Pure anagram
-            let mut s = if letters.is_empty() {
-                "Anagram search".to_string()
-            } else {
-                format!("Anagrams of \"{}\"", letters.to_uppercase())
-            };
-            if !choice_descs.is_empty() {
-                s += &format!(" plus {}", choice_descs.join(" and "));
-            }
-            if has_wildcard {
-                s += " (any number of extra letters)";
-            } else {
-                let plain_dots = dots.saturating_sub(choice_descs.len());
-                if plain_dots == 1 {
-                    s += " plus 1 unknown letter";
-                } else if plain_dots > 1 {
-                    s += &format!(" plus {} unknown letters", plain_dots);
-                }
-            }
-            return s;
-        }
-
-        // Template + anagram
-        let mut s = describe_template_part(tmpl);
-        if !letters.is_empty() {
-            s += &format!(", containing the letters \"{}\"", letters.to_uppercase());
-        }
-        if !choice_descs.is_empty() {
-            s += &format!(" and {}", choice_descs.join(" and "));
-        }
-        if has_wildcard {
-            s += " (any number of extra letters)";
-        } else {
-            let plain_dots = dots.saturating_sub(choice_descs.len());
-            if plain_dots == 1 {
-                s += " plus 1 unknown letter";
-            } else if plain_dots > 1 {
-                s += &format!(" plus {} unknown letters", plain_dots);
-            }
-        }
-        return s;
-    }
-
-    // Pure template
-    describe_template_part(val)
+    Some(describe_expr(&expr))
 }
 
-fn describe_template_part(tmpl: &str) -> String {
-    let has_wild = tmpl.contains('*');
-    let fixed_len = count_template_len(tmpl);
-    let first_desc = describe_first_char(tmpl);
-    let last_literal = get_last_literal(tmpl);
+/// Describe a logical expression tree.
+fn describe_expr(expr: &LogicalExpr) -> String {
+    match expr {
+        LogicalExpr::Single(pattern) => describe_pattern_node(pattern),
+        LogicalExpr::And(left, right) => {
+            // Check if right is a NOT — handle "A and not B" as "A, excluding B"
+            if let LogicalExpr::Not(inner) = right.as_ref() {
+                format!("{}, excluding {}",
+                    describe_expr(left),
+                    describe_expr(inner))
+            } else {
+                format!("{}, and {}",
+                    describe_expr(left),
+                    describe_expr(right))
+            }
+        }
+        LogicalExpr::Or(left, right) => {
+            format!("{}, or {}",
+                describe_expr(left),
+                describe_expr(right))
+        }
+        LogicalExpr::Not(inner) => {
+            format!("not {}", describe_expr(inner))
+        }
+    }
+}
 
-    if has_wild {
+/// Describe a single Pattern node (no logical operators).
+fn describe_pattern_node(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Template(template) => {
+            let has_punct = template_has_punct(template);
+            let desc = describe_template_part(template);
+            if has_punct {
+                format!("{} (includes punctuation)", desc)
+            } else {
+                desc
+            }
+        }
+        Pattern::Anagram(anagram_chars, dots, has_wildcard) => {
+            describe_anagram_part(anagram_chars, dots, *has_wildcard)
+        }
+        Pattern::TemplateWithAnagram(template, anagram_chars, dots) => {
+            let has_punct = template_has_punct(template);
+            let tmpl_desc = describe_template_part(template);
+            let anagram_desc = describe_anagram_constraint(anagram_chars, dots);
+            let combined = format!("{}, {}", tmpl_desc, anagram_desc);
+            if has_punct {
+                format!("{} (includes punctuation)", combined)
+            } else {
+                combined
+            }
+        }
+    }
+}
+
+/// Returns true if a template contains any Punct or CasedLiteral characters.
+fn template_has_punct(template: &[TemplateChar]) -> bool {
+    template.iter().any(|t| matches!(t, TemplateChar::Punct(_) | TemplateChar::CasedLiteral(_)))
+}
+
+/// Describe a template pattern (the positional part).
+fn describe_template_part(template: &[TemplateChar]) -> String {
+    let has_wildcard = template.iter().any(|t| matches!(t, TemplateChar::Wildcard));
+    let has_subpattern = template.iter().any(|t| matches!(t, TemplateChar::SubPattern(_)));
+
+    let fixed_len = template_fixed_len(template);
+    let first_desc = describe_first_char(template);
+    let last_literal = get_last_literal(template);
+
+    // Build sub-pattern notes if present
+    let sub_notes = describe_template_subpatterns(template);
+
+    let base = if has_wildcard {
         let mut desc = "Words".to_string();
         if let Some(ref fd) = first_desc {
             desc += &format!(" {}", fd);
         }
         if let Some(last) = last_literal {
-            desc += &format!(" ending with \"{}\"", last.to_uppercase());
+            desc += &format!(", ending with \"{}\"", last.to_uppercase());
         }
-        if first_desc.is_none() && last_literal.is_none() {
+        if first_desc.is_none() && last_literal.is_none() && !has_subpattern {
             desc += " of any length";
         }
         desc
@@ -113,34 +112,66 @@ fn describe_template_part(tmpl: &str) -> String {
             desc += &format!(" {}", fd);
         }
         if let Some(last) = last_literal {
-            let first_char = tmpl.chars().next();
+            // Only mention ending if it's different from the start
+            let first_char = template.iter().find_map(|t| {
+                if let TemplateChar::Literal(c) = t { Some(*c) } else { None }
+            });
             if first_char != Some(last) {
-                desc += &format!(" ending with \"{}\"", last.to_uppercase());
+                desc += &format!(", ending with \"{}\"", last.to_uppercase());
             }
         }
         desc
+    };
+
+    if sub_notes.is_empty() {
+        base
+    } else {
+        format!("{}, {}", base, sub_notes.join(", "))
     }
 }
 
-fn describe_first_char(tmpl: &str) -> Option<String> {
-    if tmpl.starts_with('[') {
-        if let Some(end) = tmpl.find(']') {
-            let inner = &tmpl[1..end];
-            return Some(descr_first_choice(inner));
+/// Describe sub-patterns embedded in a template.
+fn describe_template_subpatterns(template: &[TemplateChar]) -> Vec<String> {
+    let mut notes = Vec::new();
+    let mut pos = 0usize;
+
+    for t in template {
+        match t {
+            TemplateChar::SubPattern(SubPattern::Anagram(letters)) => {
+                let len = letters.len();
+                let letters_upper: String = letters.iter().map(|c| c.to_ascii_uppercase()).collect();
+                notes.push(format!(
+                    "positions {}–{} as an anagram of {}",
+                    pos + 1,
+                    pos + len,
+                    letters_upper
+                ));
+                pos += len;
+            }
+            TemplateChar::Wildcard => {
+                // wildcard — position tracking not meaningful
+            }
+            _ => {
+                pos += 1;
+            }
         }
     }
-    let first = tmpl.chars().next()?;
-    if first.is_alphabetic() {
-        Some(format!("starting with \"{}\"", first.to_uppercase()))
-    } else {
-        None
+    notes
+}
+
+/// Describe the first character constraint of a template.
+fn describe_first_char(template: &[TemplateChar]) -> Option<String> {
+    match template.first()? {
+        TemplateChar::Literal(c) => Some(format!("starting with \"{}\"", c.to_ascii_uppercase())),
+        TemplateChar::CasedLiteral(c) => Some(format!("starting with \"{}\" (exact case)", c)),
+        TemplateChar::ChoiceList(letters, negated) => Some(describe_choice_first(letters, *negated)),
+        _ => None,
     }
 }
 
-fn descr_first_choice(inner: &str) -> String {
-    let negated = inner.starts_with('^');
-    let letters = inner.trim_start_matches('^');
-    if letters == "aeiou" || letters == "AEIOU" {
+fn describe_choice_first(letters: &[char], negated: bool) -> String {
+    let upper: String = letters.iter().map(|c| c.to_ascii_uppercase()).collect();
+    if letters == ['a', 'e', 'i', 'o', 'u'] || letters == ['A', 'E', 'I', 'O', 'U'] {
         return if negated {
             "starting with any consonant".to_string()
         } else {
@@ -148,93 +179,165 @@ fn descr_first_choice(inner: &str) -> String {
         };
     }
     if negated {
-        format!("starting with any letter except {}", letters.to_uppercase())
+        format!("starting with any letter except {}", upper)
     } else {
-        format!("starting with one of: {}", letters.to_uppercase())
+        format!("starting with one of: {}", upper)
     }
 }
 
-fn get_last_literal(tmpl: &str) -> Option<char> {
-    let last = tmpl.chars().last()?;
-    if last.is_alphabetic() { Some(last) } else { None }
+/// Get the last literal character of a template (if it ends with one).
+fn get_last_literal(template: &[TemplateChar]) -> Option<char> {
+    match template.last()? {
+        TemplateChar::Literal(c) => Some(*c),
+        TemplateChar::CasedLiteral(c) => Some(*c),
+        _ => None,
+    }
 }
 
-fn count_template_len(tmpl: &str) -> usize {
-    let mut count = 0;
-    let chars: Vec<char> = tmpl.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i] == '[' {
-            count += 1;
-            while i < chars.len() && chars[i] != ']' {
-                i += 1;
+fn template_fixed_len(template: &[TemplateChar]) -> usize {
+    template
+        .iter()
+        .map(|t| match t {
+            TemplateChar::Wildcard => 0,
+            TemplateChar::SubPattern(SubPattern::Anagram(letters)) => letters.len(),
+            TemplateChar::SubPattern(SubPattern::Template(tmpl)) => template_fixed_len(tmpl),
+            TemplateChar::SubPattern(SubPattern::AnagramInAnagram(letters)) => letters.len(),
+            _ => 1,
+        })
+        .sum()
+}
+
+/// Describe a pure anagram pattern.
+fn describe_anagram_part(
+    anagram_chars: &[crate::engine::ast::AnagramChar],
+    dots: &Option<usize>,
+    has_wildcard: bool,
+) -> String {
+    use crate::engine::ast::AnagramChar;
+
+    let mut plain_letters: Vec<char> = Vec::new();
+    let mut sub_notes: Vec<String> = Vec::new();
+    let mut choice_descs: Vec<String> = Vec::new();
+    let mut blank_count = 0usize;
+
+    for ac in anagram_chars {
+        match ac {
+            AnagramChar::Letter(c) => plain_letters.push(*c),
+            AnagramChar::Blank => blank_count += 1,
+            AnagramChar::ChoiceList(letters, negated) => {
+                choice_descs.push(describe_choice_inline(letters, *negated));
             }
-        } else if chars[i] != '*' {
-            count += 1;
+            AnagramChar::SubPattern(SubPattern::Template(tmpl)) => {
+                // (xxx) in anagram — consecutive sequence
+                let seq: String = tmpl.iter().filter_map(|t| {
+                    if let TemplateChar::Literal(c) = t { Some(c.to_ascii_uppercase()) } else { None }
+                }).collect();
+                if !seq.is_empty() {
+                    sub_notes.push(format!("containing \"{}\" consecutively", seq));
+                }
+            }
+            AnagramChar::SubPattern(SubPattern::Anagram(letters)) |
+            AnagramChar::SubPattern(SubPattern::AnagramInAnagram(letters)) => {
+                let letters_upper: String = letters.iter().map(|c| c.to_ascii_uppercase()).collect();
+                sub_notes.push(format!("with an anagram of {} present", letters_upper));
+            }
         }
-        i += 1;
     }
-    count
+
+    let letters_upper: String = plain_letters.iter().map(|c| c.to_ascii_uppercase()).collect();
+
+    let mut s = if plain_letters.is_empty() {
+        "Anagram search".to_string()
+    } else {
+        format!("Anagrams of \"{}\"", letters_upper)
+    };
+
+    if !choice_descs.is_empty() {
+        s += &format!(" plus {}", choice_descs.join(" and "));
+    }
+
+    if has_wildcard {
+        s += " (any number of extra letters)";
+    } else {
+        let plain_dots = dots.unwrap_or(0).saturating_sub(choice_descs.len());
+        if plain_dots == 1 {
+            s += " plus 1 unknown letter";
+        } else if plain_dots > 1 {
+            s += &format!(" plus {} unknown letters", plain_dots);
+        }
+    }
+
+    for note in &sub_notes {
+        s += &format!(", {}", note);
+    }
+
+    s
 }
 
-fn describe_choice_list_inner(inner: &str) -> String {
-    let negated = inner.starts_with('^');
-    let letters = inner.trim_start_matches('^').to_uppercase();
-    if letters == "AEIOU" {
-        return if negated {
-            "any consonant".to_string()
+/// Describe the anagram constraint portion of a template+anagram pattern.
+fn describe_anagram_constraint(
+    anagram_chars: &[crate::engine::ast::AnagramChar],
+    dots: &Option<usize>,
+) -> String {
+    use crate::engine::ast::AnagramChar;
+
+    let mut plain_letters: Vec<char> = Vec::new();
+    let mut sub_notes: Vec<String> = Vec::new();
+
+    for ac in anagram_chars {
+        match ac {
+            AnagramChar::Letter(c) => plain_letters.push(*c),
+            AnagramChar::Blank => {}
+            AnagramChar::ChoiceList(letters, negated) => {
+                sub_notes.push(format!("containing {}", describe_choice_inline(letters, *negated)));
+            }
+            AnagramChar::SubPattern(SubPattern::Template(tmpl)) => {
+                let seq: String = tmpl.iter().filter_map(|t| {
+                    if let TemplateChar::Literal(c) = t { Some(c.to_ascii_uppercase()) } else { None }
+                }).collect();
+                if !seq.is_empty() {
+                    sub_notes.push(format!("containing \"{}\" consecutively", seq));
+                }
+            }
+            AnagramChar::SubPattern(SubPattern::Anagram(letters)) |
+            AnagramChar::SubPattern(SubPattern::AnagramInAnagram(letters)) => {
+                let letters_upper: String = letters.iter().map(|c| c.to_ascii_uppercase()).collect();
+                sub_notes.push(format!("with an anagram of {} present", letters_upper));
+            }
+        }
+    }
+
+    let letters_upper: String = plain_letters.iter().map(|c| c.to_ascii_uppercase()).collect();
+
+    let mut parts: Vec<String> = Vec::new();
+
+    if !plain_letters.is_empty() {
+        let extra = dots.unwrap_or(0);
+        if extra > 0 {
+            parts.push(format!("containing the letters \"{}\" plus {} unknown",
+                letters_upper, extra));
         } else {
-            "any vowel".to_string()
-        };
+            parts.push(format!("containing the letters \"{}\"", letters_upper));
+        }
+    }
+
+    parts.extend(sub_notes);
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        parts.join(", ")
+    }
+}
+
+fn describe_choice_inline(letters: &[char], negated: bool) -> String {
+    let upper: String = letters.iter().map(|c| c.to_ascii_uppercase()).collect();
+    if letters == ['a', 'e', 'i', 'o', 'u'] {
+        return if negated { "any consonant".to_string() } else { "any vowel".to_string() };
     }
     if negated {
-        format!(
-            "any letter except {}",
-            letters
-                .chars()
-                .map(|c| c.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+        format!("any letter except {}", upper)
     } else {
-        format!(
-            "one of: {}",
-            letters
-                .chars()
-                .map(|c| c.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+        format!("one of: {}", upper)
     }
-}
-
-fn parse_anagram_for_description(
-    anagram_part: &str,
-) -> (String, usize, bool, Vec<String>) {
-    let mut letters = String::new();
-    let mut dots = 0usize;
-    let mut has_wildcard = false;
-    let mut choice_descs: Vec<String> = Vec::new();
-    let chars: Vec<char> = anagram_part.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        match chars[i] {
-            '*' => { has_wildcard = true; i += 1; }
-            '.' | '?' => { dots += 1; i += 1; }
-            '[' => {
-                dots += 1;
-                i += 1;
-                let mut inner = String::new();
-                while i < chars.len() && chars[i] != ']' {
-                    inner.push(chars[i]);
-                    i += 1;
-                }
-                if i < chars.len() { i += 1; }
-                choice_descs.push(describe_choice_list_inner(&inner));
-            }
-            c if c.is_alphabetic() => { letters.push(c); i += 1; }
-            _ => { i += 1; }
-        }
-    }
-    (letters, dots, has_wildcard, choice_descs)
 }

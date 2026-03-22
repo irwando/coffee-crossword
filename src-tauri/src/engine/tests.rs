@@ -816,12 +816,6 @@ fn test_describe_pattern_empty() {
     assert!(describe_pattern("").is_none());
 }
 
-#[test]
-fn test_describe_pattern_logical_stub() {
-    use crate::engine::mod_pub::describe_pattern;
-    let d = describe_pattern("c* & !cat*").unwrap();
-    assert_eq!(d, "Complex pattern");
-}
 
 #[test]
 fn test_describe_pattern_macro() {
@@ -834,12 +828,73 @@ fn test_describe_pattern_macro() {
 fn test_describe_pattern_subpattern() {
     use crate::engine::mod_pub::describe_pattern;
     let d = describe_pattern("...(;orange)").unwrap();
-    assert_eq!(d, "Sub-pattern");
+    assert!(d.to_lowercase().contains("orange"),
+        "should mention orange: {}", d);
+    assert!(d.to_lowercase().contains("anagram"),
+        "should mention anagram: {}", d);
 }
 
 #[test]
 fn test_describe_pattern_punctuation() {
     use crate::engine::mod_pub::describe_pattern;
     let d = describe_pattern("...-..-..").unwrap();
-    assert_eq!(d, "Punctuation pattern");
+    assert!(d.to_lowercase().contains("punctuation"),
+        "should mention punctuation: {}", d);
+    assert_ne!(d, "Punctuation pattern",
+        "should be more descriptive than just 'Punctuation pattern'");
+}
+
+#[test]
+fn test_describe_pattern_logical_and() {
+    use crate::engine::mod_pub::describe_pattern;
+    let d = describe_pattern("c* & *s").unwrap();
+    assert!(d.to_lowercase().contains("and"),
+        "should contain 'and': {}", d);
+}
+
+#[test]
+fn test_describe_pattern_logical_or() {
+    use crate::engine::mod_pub::describe_pattern;
+    let d = describe_pattern("c... | ...r").unwrap();
+    assert!(d.to_lowercase().contains("or"),
+        "should contain 'or': {}", d);
+}
+
+#[test]
+fn test_describe_pattern_logical_not() {
+    use crate::engine::mod_pub::describe_pattern;
+    let d = describe_pattern("c* & !cat*").unwrap();
+    assert!(d.to_lowercase().contains("excluding"),
+        "should contain 'excluding': {}", d);
+}
+
+#[test]
+fn test_describe_pattern_subpattern_in_template() {
+    use crate::engine::mod_pub::describe_pattern;
+    let d = describe_pattern("...(;orange)").unwrap();
+    assert!(d.to_lowercase().contains("orange"),
+        "should mention orange: {}", d);
+    assert!(d.to_lowercase().contains("anagram"),
+        "should mention anagram: {}", d);
+}
+
+#[test]
+fn test_describe_pattern_subpattern_in_anagram() {
+    use crate::engine::mod_pub::describe_pattern;
+    let d = describe_pattern(";rebel(ada)").unwrap();
+    assert!(d.to_lowercase().contains("rebel"),
+        "should mention rebel: {}", d);
+    assert!(d.to_lowercase().contains("ada"),
+        "should mention ada: {}", d);
+}
+
+#[test]
+fn test_describe_pattern_punctuation_noted() {
+    use crate::engine::mod_pub::describe_pattern;
+    let d = describe_pattern("...-..-..").unwrap();
+    assert!(d.to_lowercase().contains("punctuation"),
+        "should mention punctuation: {}", d);
+    // Should also describe the pattern itself, not just say "punctuation pattern"
+    assert_ne!(d, "Punctuation pattern",
+        "should be more descriptive than just 'Punctuation pattern'");
 }

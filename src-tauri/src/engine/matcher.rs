@@ -63,7 +63,7 @@ pub(crate) fn eval_expr(raw_word: &str, norm_word: &str, word_len: usize, expr: 
     }
 }
 
-fn eval_pattern(raw_word: &str, norm_word: &str, word_len: usize, pattern: &Pattern) -> Option<String> {
+fn eval_pattern(raw_word: &str, norm_word: &str, _word_len: usize, pattern: &Pattern) -> Option<String> {
     match pattern {
         Pattern::Template(template) => {
             // Use raw word if pattern contains punctuation or cased literals

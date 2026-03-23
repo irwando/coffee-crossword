@@ -3,7 +3,7 @@
 // All helpers are private — only describe_pattern is pub(crate).
 
 use crate::engine::ast::{LogicalExpr, Pattern, SubPattern, TemplateChar};
-use crate::engine::parser::{expand_macros, parse_logical, parse_pattern};
+use crate::engine::parser::{expand_macros, parse_logical};
 
 /// Return a human-readable description of a pattern string.
 /// Returns None if the pattern is empty or invalid.
@@ -218,12 +218,10 @@ fn describe_anagram_part(
     let mut plain_letters: Vec<char> = Vec::new();
     let mut sub_notes: Vec<String> = Vec::new();
     let mut choice_descs: Vec<String> = Vec::new();
-    let mut blank_count = 0usize;
-
     for ac in anagram_chars {
         match ac {
             AnagramChar::Letter(c) => plain_letters.push(*c),
-            AnagramChar::Blank => blank_count += 1,
+            AnagramChar::Blank => {}
             AnagramChar::ChoiceList(letters, negated) => {
                 choice_descs.push(describe_choice_inline(letters, *negated));
             }

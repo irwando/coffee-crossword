@@ -26,7 +26,7 @@ pub mod mod_pub {
 
 /// Search a word list using a pattern string.
 /// Handles all pattern types including logical operations.
-/// This is the main entry point for all callers.
+/// This is the main entry point for plain-text word lists and tests.
 pub fn search_words(
     words: &[String],
     pattern: &str,
@@ -38,6 +38,24 @@ pub fn search_words(
         Some(expr) => grouping::search(words, &expr, min_len, max_len, normalize_mode),
         None => Vec::new(),
     }
+}
+
+/// Search a memory-mapped cache using a pattern string.
+/// This is the high-performance entry point for .tsc cache files.
+/// Uses length-bucketed access to avoid scanning the full list.
+pub fn search_cache(
+    cache: &crate::cache::CacheHandle,
+    pattern: &str,
+    min_len: usize,
+    max_len: usize,
+    normalize_mode: bool,
+) -> Vec<MatchGroup> {
+    let expr = match parser::parse_logical(pattern) {
+        Some(e) => e,
+        None => return Vec::new(),
+    };
+
+    grouping::search_cache(cache, &expr, min_len, max_len, normalize_mode)
 }
 
 /// Validate a pattern string.

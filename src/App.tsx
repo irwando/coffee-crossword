@@ -3,17 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import ResultsColumn from "./ResultsColumn";
+import WordListDrawer from "./WordListDrawer";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface MatchGroup {
   normalized: string;
   variants: string[];
   balance: string | null;
-}
-
-interface SearchResponse {
-  results: MatchGroup[];
-  dict_name: string;
-  dict_count: number;
 }
 
 interface HistoryEntry {
@@ -31,6 +29,30 @@ type ViewMode = "grid" | "list";
 type AppearanceMode = "light" | "dark" | "system";
 type ReferenceMode = "full" | "compact" | "off";
 
+// Per-list search state
+interface ListResults {
+  listId: string;
+  listName: string;
+  entryCount: number;
+  results: MatchGroup[] | null; // null = loading
+  isLoading: boolean;
+}
+
+// Registry snapshot (minimal — just what App.tsx needs)
+interface ListEntry {
+  id: string;
+  display_name: string;
+  word_count: number;
+  cache_state: { type: string };
+}
+interface Registry {
+  available: ListEntry[];
+  active_ids: string[];
+  dedup_enabled: boolean;
+}
+
+// ── Store / defaults ──────────────────────────────────────────────────────────
+
 const STORE_FILE = "settings.json";
 const MAX_HISTORY = 100;
 
@@ -46,7 +68,7 @@ const DEFAULTS = {
   appearance: "system" as AppearanceMode,
 };
 
-// ── Theme ────────────────────────────────────────────────────────────────────
+// ── Theme ─────────────────────────────────────────────────────────────────────
 
 let systemDarkListener: ((e: MediaQueryListEvent) => void) | null = null;
 let systemMQ: MediaQueryList | null = null;
@@ -75,8 +97,6 @@ function applyTheme(mode: AppearanceMode) {
 }
 
 // ── Reference panel data ──────────────────────────────────────────────────────
-// Single source of truth — Full table and Compact grid both render from this.
-// RULE: when adding a new pattern type, add a row here AND update engine.rs describe_pattern.
 
 const REFERENCE_ROWS = [
   { feature: "Template",         pattern: ".l...r.n",    match: "electron",      note: ". or ? = any letter"        },
@@ -89,9 +109,9 @@ const REFERENCE_ROWS = [
   { feature: "Anagram wildcard", pattern: ";cats*",       match: "escalator",     note: "* = any extra letters"      },
   { feature: "Tmpl + anagram",   pattern: "e.....;cats",  match: "enacts",        note: "combine both styles"        },
   { feature: "Letter variable",  pattern: "12321",        match: "level",         note: "same digit = same letter"   },
-  { feature: "Logical AND",      pattern: "c* & *s",      match: "cats",          note: "must match both"            },
-  { feature: "Logical OR",       pattern: "c... | ...r",  match: "cast",          note: "matches either"             },
-  { feature: "Logical NOT",      pattern: "c* & !cat*",   match: "cast",          note: "exclude matches"            },
+  { feature: "AND",              pattern: "c* & *s",      match: "cats",          note: "must match both"            },
+  { feature: "OR",               pattern: "c... | ...r",  match: "cast",          note: "matches either"             },
+  { feature: "NOT",              pattern: "c* & !cat*",   match: "cast",          note: "exclude matches"            },
   { feature: "Sub-pattern",      pattern: "...(;orange)", match: "patronage",     note: "() switches mode"           },
   { feature: "Punctuation",      pattern: "...-..-....", match: "pick-me-up",    note: "normalize off to use"       },
 ];
@@ -109,9 +129,7 @@ function ReferenceHeader() {
 function ReferenceFull({ onPatternClick }: { onPatternClick: (p: string) => void }) {
   return (
     <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-      <div className="px-3 pt-2 pb-1">
-        <ReferenceHeader />
-      </div>
+      <div className="px-3 pt-2 pb-1"><ReferenceHeader /></div>
       <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
@@ -167,19 +185,56 @@ function ReferenceCompact({ onPatternClick }: { onPatternClick: (p: string) => v
   );
 }
 
-// ── Main app ─────────────────────────────────────────────────────────────────
+// ── Context menu ──────────────────────────────────────────────────────────────
+
+function ContextMenuPopup({ x, y, onCopy }: { x: number; y: number; onCopy: () => void }) {
+  const CMItem = ({ label, onClick, disabled = false }: { label: string; onClick?: () => void; disabled?: boolean }) => (
+    <button
+      onClick={disabled ? undefined : onClick}
+      className={`w-full text-left px-4 py-1.5 text-sm transition-colors ${
+        disabled
+          ? "context-menu-disabled cursor-default"
+          : "text-gray-700 dark:text-gray-200 hover:bg-blue-500 hover:text-white cursor-pointer"
+      }`}
+    >{label}</button>
+  );
+  return (
+    <div
+      style={{ position: "fixed", left: x, top: y, zIndex: 1000 }}
+      className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-48"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <CMItem label="Copy" onClick={onCopy} />
+      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
+      <CMItem label="Look up definition" disabled />
+      <CMItem label="Open in external dictionary" disabled />
+      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
+      <CMItem label="Copy to word list" disabled />
+    </div>
+  );
+}
+
+// ── Main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [pattern, setPattern] = useState("");
   const [explanation, setExplanation] = useState("");
-  const [results, setResults] = useState<MatchGroup[]>([]);
-  const [dictName, setDictName] = useState("");
-  const [status, setStatus] = useState("Enter a pattern and press Search");
-  const [loading, setLoading] = useState(false);
+
+  // Multi-list results: keyed by listId, in active_ids order
+  const [listResults, setListResults] = useState<ListResults[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [buildInProgress, setBuildInProgress] = useState(false);
+  const [listsLoading, setListsLoading] = useState(true);
+  const [statusMsg, setStatusMsg] = useState("Enter a pattern and press Search");
+
+  // Registry (lightweight copy for UI decisions)
+  const [registry, setRegistry] = useState<Registry>({ available: [], active_ids: [], dedup_enabled: true });
+
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const [normalize, setNormalize] = useState(DEFAULTS.normalize);
   const [variantMode, setVariantMode] = useState<VariantMode>(DEFAULTS.variantMode);
@@ -196,11 +251,13 @@ export default function App() {
   const settingsLoaded = useRef(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
-  const allWords = results.map((r) => r.normalized);
+  // All words currently visible (for shift-click range selection)
+  const allWords = listResults.flatMap((lr) => (lr.results ?? []).map((r) => r.normalized));
 
+  // ── Theme ────────────────────────────────────────────────────────────────
   useEffect(() => { applyTheme(appearance); }, [appearance]);
 
-  // Load settings
+  // ── Load settings ─────────────────────────────────────────────────────
   useEffect(() => {
     load(STORE_FILE, { autoSave: true, defaults: {} }).then((store) => {
       storeRef.current = store;
@@ -215,7 +272,11 @@ export default function App() {
         store.get<boolean>("showOptions"),
         store.get<AppearanceMode>("appearance"),
         store.get<HistoryEntry[]>("history"),
-      ]).then(([n, vm, view, min, max, ref_, desc, opts, app_, hist]) => {
+        store.get<string[]>("word_list_active_ids"),
+        store.get<Record<string, string>>("word_list_display_names"),
+        store.get<boolean>("dedup_enabled"),
+      ]).then(([n, vm, view, min, max, ref_, desc, opts, app_, hist,
+                activeIds, displayNames, dedup]) => {
         if (n !== null && n !== undefined) setNormalize(n);
         if (vm) setVariantMode(vm);
         if (view) setViewMode(view);
@@ -227,11 +288,51 @@ export default function App() {
         if (app_) { setAppearance(app_); applyTheme(app_); }
         if (hist) setHistory(hist);
         settingsLoaded.current = true;
+
+        // Restore active list IDs and display names to backend, then load registry.
+        const ids = activeIds ?? [];
+        const names = displayNames ?? {};
+
+        // Apply persisted active_ids + names to backend, then fetch registry.
+        const applyAndFetch = async () => {
+          try {
+            // First fetch the registry to see what's available.
+            const reg = await invoke<Registry>("get_registry");
+
+            // Filter persisted active_ids to only those that are currently Ready.
+            const readyIds = ids.filter((id) =>
+              reg.available.some((e) => e.id === id && e.cache_state.type === "Ready")
+            );
+
+            if (readyIds.length > 0) {
+              await invoke("set_active_lists", { ids: readyIds });
+            }
+
+            // Re-apply genuine user name overrides only (not auto-derived names).
+            // Skip names equal to the id: those were never explicitly set by the user
+            // and would override the display name embedded in the .tsc header.
+            for (const [id, name] of Object.entries(names)) {
+              if (name !== id) {
+                try { await invoke("rename_list", { id, name }); } catch { /* ok */ }
+              }
+            }
+
+            if (dedup !== null && dedup !== undefined) {
+              await invoke("set_dedup_enabled", { enabled: dedup });
+            }
+
+            const finalReg = await invoke<Registry>("get_registry");
+            setRegistry(finalReg);
+          } catch (e) {
+            console.error("Registry init failed:", e);
+          }
+        };
+        applyAndFetch();
       });
     });
   }, []);
 
-  // Persist settings
+  // ── Persist UI settings ────────────────────────────────────────────────
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
     const s = storeRef.current;
@@ -244,34 +345,127 @@ export default function App() {
     s.set("showDescription", showDescription);
     s.set("showOptions", showOptions);
     s.set("appearance", appearance);
-  }, [normalize, variantMode, viewMode, minLen, maxLen,
-      referenceMode, showDescription, showOptions, appearance]);
+  }, [normalize, variantMode, viewMode, minLen, maxLen, referenceMode, showDescription, showOptions, appearance]);
 
-  // Persist history
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
     storeRef.current.set("history", history);
   }, [history]);
 
-  // Menu events
+  // ── Listen to registry:changed (from Rust when commands change state) ─
   useEffect(() => {
-    const unlisten: Array<() => void> = [];
+    interface RegistryChangedPayload {
+      active_ids: string[];
+      display_names: Record<string, string>;
+      dedup_enabled: boolean;
+    }
+    let unlisten: (() => void) | null = null;
+    listen<RegistryChangedPayload>("registry:changed", (e) => {
+      const payload = e.payload;
+      if (storeRef.current) {
+        storeRef.current.set("word_list_active_ids", payload.active_ids);
+        storeRef.current.set("word_list_display_names", payload.display_names);
+        storeRef.current.set("dedup_enabled", payload.dedup_enabled);
+      }
+      invoke<Registry>("get_registry").then(setRegistry).catch(console.error);
+    }).then((u) => { unlisten = u; });
+    return () => { if (unlisten) unlisten(); };
+  }, []);
 
-    listen<string>("menu:toggle", (event) => {
-      const panel = event.payload;
-      if (panel === "description") setShowDescription((v) => !v);
-      else if (panel === "options") setShowOptions((v) => !v);
-    }).then((u) => unlisten.push(u));
+  // ── Listen to search events ────────────────────────────────────────────
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
 
-    listen<string>("menu:reference", (event) => {
-      setReferenceMode(event.payload as ReferenceMode);
-    }).then((u) => unlisten.push(u));
+    listen<{ active_ids: string[] }>("search:start", (e) => {
+      setIsSearching(true);
+      setListResults(
+        e.payload.active_ids.map((id) => {
+          const entry = registry.available.find((a) => a.id === id);
+          return {
+            listId: id,
+            listName: entry?.display_name ?? id,
+            entryCount: entry?.word_count ?? 0,
+            results: null,
+            isLoading: true,
+          };
+        })
+      );
+    }).then((u) => unlisteners.push(u));
 
-    listen<string>("menu:appearance", (event) => {
-      const mode = event.payload as AppearanceMode;
+    listen<{ list_id: string; list_name: string; results: MatchGroup[]; error: string | null }>(
+      "search:list-result",
+      (e) => {
+        const { list_id, list_name, results } = e.payload;
+        setListResults((prev) =>
+          prev.map((lr) =>
+            lr.listId === list_id
+              ? { ...lr, listName: list_name, results, isLoading: false }
+              : lr
+          )
+        );
+      }
+    ).then((u) => unlisteners.push(u));
+
+    // After dedup: re-apply final results if dedup removed words.
+    listen<{ list_id: string; list_name: string; results: MatchGroup[]; error: string | null }>(
+      "search:list-result-final",
+      (e) => {
+        const { list_id, list_name, results } = e.payload;
+        setListResults((prev) =>
+          prev.map((lr) =>
+            lr.listId === list_id
+              ? { ...lr, listName: list_name, results, isLoading: false }
+              : lr
+          )
+        );
+      }
+    ).then((u) => unlisteners.push(u));
+
+    listen("search:complete", () => {
+      setIsSearching(false);
+    }).then((u) => unlisteners.push(u));
+
+    // Build state affects search availability.
+    listen<{ list_id: string }>("build:start", () => setBuildInProgress(true)).then((u) => unlisteners.push(u));
+    listen("build:complete", () => setBuildInProgress(false)).then((u) => unlisteners.push(u));
+    listen("build:error", () => setBuildInProgress(false)).then((u) => unlisteners.push(u));
+
+    return () => unlisteners.forEach((u) => u());
+  }, [registry]);
+
+  // ── Wait for background cache handle loading ────────────────────────────
+  // registry:ready fires once when Rust's background task finishes opening mmaps.
+  // We also poll handles_ready() as a fallback in case the event fires before
+  // this listener is registered (race condition for fast/small word lists).
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen("registry:ready", () => {
+      setListsLoading(false);
+      invoke<Registry>("get_registry").then(setRegistry).catch(console.error);
+    }).then((u) => { unlisten = u; });
+    // Fallback: check if handles are already ready (fired before listener registered).
+    invoke<boolean>("handles_ready")
+      .then((ready) => { if (ready) setListsLoading(false); })
+      .catch(() => setListsLoading(false));
+    return () => { if (unlisten) unlisten(); };
+  }, []);
+
+  // ── Menu events ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+
+    listen<string>("menu:toggle", (e) => {
+      if (e.payload === "description") setShowDescription((v) => !v);
+      else if (e.payload === "options") setShowOptions((v) => !v);
+    }).then((u) => unlisteners.push(u));
+
+    listen<string>("menu:reference", (e) => setReferenceMode(e.payload as ReferenceMode)).then((u) => unlisteners.push(u));
+
+    listen<string>("menu:appearance", (e) => {
+      const mode = e.payload as AppearanceMode;
       setAppearance(mode);
       applyTheme(mode);
-    }).then((u) => unlisten.push(u));
+    }).then((u) => unlisteners.push(u));
 
     listen<string>("menu:reset_layout", () => {
       setReferenceMode(DEFAULTS.referenceMode);
@@ -284,12 +478,14 @@ export default function App() {
       setMaxLen(DEFAULTS.maxLen);
       setAppearance(DEFAULTS.appearance);
       applyTheme(DEFAULTS.appearance);
-    }).then((u) => unlisten.push(u));
+    }).then((u) => unlisteners.push(u));
 
-    return () => unlisten.forEach((u) => u());
+    listen("menu:lists", () => setDrawerOpen(true)).then((u) => unlisteners.push(u));
+
+    return () => unlisteners.forEach((u) => u());
   }, []);
 
-  // Close history on outside click
+  // ── Close history on outside click ────────────────────────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
@@ -300,7 +496,7 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Close context menu on click
+  // ── Close context menu on click ────────────────────────────────────────
   useEffect(() => {
     if (!contextMenu) return;
     const handler = () => setContextMenu(null);
@@ -308,7 +504,7 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, [contextMenu]);
 
-  // Debounced pattern description — 500ms, calls Rust describe_pattern
+  // ── Pattern description (debounced, 500ms) ─────────────────────────────
   useEffect(() => {
     setExplanation("");
     if (explainTimerRef.current) clearTimeout(explainTimerRef.current);
@@ -317,57 +513,74 @@ export default function App() {
       try {
         const desc = await invoke<string | null>("describe_pattern", { pattern: pattern.trim() });
         setExplanation(desc ?? "");
-      } catch {
-        setExplanation("");
-      }
+      } catch { setExplanation(""); }
     }, 500);
     return () => { if (explainTimerRef.current) clearTimeout(explainTimerRef.current); };
   }, [pattern]);
 
+  // ── Search ─────────────────────────────────────────────────────────────
   const doSearch = useCallback(async (patternOverride?: string) => {
     const trimmed = (patternOverride ?? pattern).trim();
     if (!trimmed) return;
     if (patternOverride) setPattern(patternOverride);
-    setLoading(true);
-    setStatus("Searching...");
     setShowHistory(false);
     setSelectedWords(new Set());
+    setStatusMsg("Searching…");
+
+    if (listsLoading) {
+      setStatusMsg("Word lists are still loading, please wait…");
+      return;
+    }
+
+    if (buildInProgress) {
+      setStatusMsg("Search unavailable while a word list is being indexed.");
+      return;
+    }
+
     try {
-      const response = await invoke<SearchResponse>("search", {
-        pattern: trimmed, minLen, maxLen, normalize,
-      });
-      setResults(response.results);
-      setDictName(response.dict_name);
-      const matchCount = response.results.length;
-      setStatus(matchCount === 0 ? "No matches found" : `${matchCount} matches`);
+      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize });
+      // Results arrive via events (search:start, search:list-result, search:complete).
+      // Update history after issuing the search.
       setHistory((prev) => {
         const filtered = prev.filter((h) => h.pattern !== trimmed);
-        return [{ pattern: trimmed, matchCount }, ...filtered].slice(0, MAX_HISTORY);
+        // We'll update match count when search:complete fires with the total.
+        return [{ pattern: trimmed, matchCount: 0 }, ...filtered].slice(0, MAX_HISTORY);
       });
     } catch (err) {
-      setStatus(`Error: ${err}`);
-      setResults([]);
-    } finally {
-      setLoading(false);
+      setStatusMsg(`Error: ${err}`);
+      setIsSearching(false);
     }
-  }, [pattern, minLen, maxLen, normalize]);
+  }, [pattern, minLen, maxLen, normalize, listsLoading, buildInProgress]);
+
+  // Update history match count when search completes.
+  useEffect(() => {
+    if (isSearching) return;
+    const total = listResults.reduce((sum, lr) => sum + (lr.results?.length ?? 0), 0);
+    if (total === 0 && listResults.length === 0) return;
+    setHistory((prev) => {
+      if (prev.length === 0) return prev;
+      return [{ ...prev[0], matchCount: total }, ...prev.slice(1)];
+    });
+    setStatusMsg(
+      total === 0
+        ? "No matches found"
+        : `${total} match${total === 1 ? "" : "es"}${listResults.length > 1 ? ` across ${listResults.length} lists` : ""}`
+    );
+  }, [isSearching, listResults]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") doSearch();
     if (e.key === "Escape") setShowHistory(false);
   };
 
-  // Selecting from history runs the search immediately
   const selectHistory = (entry: HistoryEntry) => {
     setShowHistory(false);
     doSearch(entry.pattern);
   };
 
-  // Clicking a reference pattern runs search immediately
-  const handleReferenceClick = (p: string) => {
-    doSearch(p);
-  };
+  const handleReferenceClick = (p: string) => { doSearch(p); };
 
+  // ── Word selection ─────────────────────────────────────────────────────
   const handleWordClick = useCallback((word: string, e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu(null);
@@ -392,31 +605,26 @@ export default function App() {
 
   const handleWordRightClick = useCallback((word: string, e: React.MouseEvent) => {
     e.preventDefault();
-    setSelectedWords((prev) => {
-      if (!prev.has(word)) return new Set([word]);
-      return prev;
-    });
+    setSelectedWords((prev) => { if (!prev.has(word)) return new Set([word]); return prev; });
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
   const handleCopy = useCallback(async () => {
     const text = [...selectedWords].join("\n");
-    try {
-      await writeText(text);
-    } catch {
-      await navigator.clipboard.writeText(text);
-    }
+    try { await writeText(text); } catch { await navigator.clipboard.writeText(text); }
     setContextMenu(null);
   }, [selectedWords]);
 
-  const grouped = results.reduce<Record<number, MatchGroup[]>>((acc, r) => {
-    const len = r.normalized.length;
-    if (!acc[len]) acc[len] = [];
-    acc[len].push(r);
-    return acc;
-  }, {});
-  const lengths = Object.keys(grouped).map(Number).sort((a, b) => a - b);
+  // ── Registry helpers ───────────────────────────────────────────────────
+  const refreshRegistry = useCallback(() => {
+    invoke<Registry>("get_registry").then(setRegistry).catch(console.error);
+  }, []);
 
+  const totalMatches = listResults.reduce((sum, lr) => sum + (lr.results?.length ?? 0), 0);
+  const activeListCount = registry.active_ids.length;
+  const hasMultipleLists = activeListCount > 1;
+
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div
       style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}
@@ -467,7 +675,7 @@ export default function App() {
                       className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 text-left border-b border-gray-50 dark:border-gray-700 last:border-0"
                     >
                       <span className="font-mono text-sm text-gray-800 dark:text-gray-200">{entry.pattern}</span>
-                      <span className="text-xs text-gray-400 ml-4 flex-shrink-0">{entry.matchCount} matches</span>
+                      <span className="text-xs text-gray-400 ml-4 flex-shrink-0">{entry.matchCount > 0 ? `${entry.matchCount} matches` : ""}</span>
                     </button>
                   ))}
                 </div>
@@ -477,19 +685,57 @@ export default function App() {
 
           <button
             onClick={() => doSearch()}
-            disabled={loading}
+            disabled={isSearching || buildInProgress || listsLoading}
             className="px-5 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors flex-shrink-0"
           >
-            {loading ? "..." : "Search"}
+            {isSearching ? "…" : "Search"}
+          </button>
+
+          {/* Word list button */}
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className={`px-3 py-2 rounded-lg text-sm border transition-colors flex-shrink-0 ${
+              activeListCount === 0
+                ? "border-orange-300 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100"
+                : "border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+            }`}
+            title="Manage Word Lists (⌘⇧L)"
+          >
+            {activeListCount === 0 ? "⚠ Lists" : `📚 ${activeListCount}`}
           </button>
         </div>
 
-        {/* Pattern description — always shown, powered by Rust describe_pattern */}
+        {/* Pattern description */}
         {showDescription && (
           <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-1.5 mb-1.5 leading-relaxed">
             {explanation || (
               <span className="text-gray-400 dark:text-gray-500 italic">Enter a pattern to see a description</span>
             )}
+          </div>
+        )}
+
+        {/* Loading banner — shown while background mmap task is running */}
+        {listsLoading && (
+          <div className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-1.5 mb-1.5">
+            Loading word lists…
+          </div>
+        )}
+
+        {/* Build-in-progress banner */}
+        {!listsLoading && buildInProgress && (
+          <div className="text-xs text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-1.5 mb-1.5">
+            Building word list index — search unavailable
+          </div>
+        )}
+
+        {/* No active lists warning */}
+        {!listsLoading && !buildInProgress && activeListCount === 0 && (
+          <div className="text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-1.5 mb-1.5">
+            No word lists active.{" "}
+            <button onClick={() => setDrawerOpen(true)} className="underline hover:no-underline">
+              Open Word Lists
+            </button>{" "}
+            to build and activate a list.
           </div>
         )}
 
@@ -558,191 +804,119 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── RESULTS HEADER ── */}
-      {results.length > 0 && (
+      {/* ── RESULTS HEADER (shown when results exist) ── */}
+      {listResults.length > 0 && (
         <div className="flex items-center justify-between px-5 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{results.length} matches</span>
-            {dictName && <span className="text-xs text-gray-400">from {dictName}</span>}
+            {isSearching ? (
+              <span className="text-sm text-gray-400 animate-pulse">Searching…</span>
+            ) : (
+              <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                {totalMatches} {totalMatches === 1 ? "match" : "matches"}
+                {hasMultipleLists && <span className="text-xs font-normal text-gray-400 ml-1">across {listResults.length} lists</span>}
+              </span>
+            )}
           </div>
         </div>
       )}
 
       {/* ── SCROLLABLE RESULTS ── */}
-      <div className="flex-1 overflow-y-auto px-5 py-3 bg-white dark:bg-gray-900">
-        {results.length === 0 && (
-          <p className="text-sm text-gray-400 dark:text-gray-500">{status}</p>
+      <div className="flex-1 overflow-hidden">
+        {/* Single list: full-width scrollable pane */}
+        {!hasMultipleLists && (
+          <div className="h-full overflow-y-auto px-5 py-3 bg-white dark:bg-gray-900">
+            {listResults.length === 0 && (
+              <p className="text-sm text-gray-400 dark:text-gray-500">{statusMsg}</p>
+            )}
+            {listResults.length === 1 && (
+              <ResultsColumn
+                listId={listResults[0].listId}
+                listName={listResults[0].listName}
+                entryCount={listResults[0].entryCount}
+                results={listResults[0].results}
+                isLoading={listResults[0].isLoading}
+                normalize={normalize}
+                variantMode={variantMode}
+                viewMode={viewMode}
+                selectedWords={selectedWords}
+                onWordClick={handleWordClick}
+                onWordRightClick={handleWordRightClick}
+              />
+            )}
+          </div>
         )}
-        {results.length > 0 && viewMode === "grid" && (
-          <GridView lengths={lengths} grouped={grouped} normalize={normalize} variantMode={variantMode}
-            selectedWords={selectedWords} onWordClick={handleWordClick} onWordRightClick={handleWordRightClick} />
+
+        {/* Multiple lists: stacked panes with independent scroll, proportional height */}
+        {hasMultipleLists && listResults.length > 0 && (
+          <div className="h-full flex flex-col gap-2 px-5 py-3 overflow-hidden bg-white dark:bg-gray-900">
+            {(() => {
+              return listResults.map((lr) => {
+                // Once the full search completes, size panes proportional to match count.
+                // Using !isSearching (set false on search:complete) rather than checking
+                // per-list loading flags, so the resize happens once at the end — not
+                // mid-stream when the last individual list result arrives.
+                const count = lr.results?.length ?? 0;
+                const grow = !isSearching ? Math.max(count, 1) : 1;
+                return (
+                  <div
+                    key={lr.listId}
+                    style={{ flex: `${grow} 1 0%`, minHeight: "120px", overflow: "hidden" }}
+                  >
+                    <ResultsColumn
+                      listId={lr.listId}
+                      listName={lr.listName}
+                      entryCount={lr.entryCount}
+                      results={lr.results}
+                      isLoading={lr.isLoading}
+                      normalize={normalize}
+                      variantMode={variantMode}
+                      viewMode={viewMode}
+                      selectedWords={selectedWords}
+                      onWordClick={handleWordClick}
+                      onWordRightClick={handleWordRightClick}
+                    />
+                  </div>
+                );
+              });
+            })()}
+          </div>
         )}
-        {results.length > 0 && viewMode === "list" && (
-          <ListView lengths={lengths} grouped={grouped} normalize={normalize} variantMode={variantMode}
-            selectedWords={selectedWords} onWordClick={handleWordClick} onWordRightClick={handleWordRightClick} />
+
+        {/* Multiple lists but no search yet */}
+        {hasMultipleLists && listResults.length === 0 && (
+          <div className="h-full overflow-y-auto px-5 py-3 bg-white dark:bg-gray-900">
+            <p className="text-sm text-gray-400 dark:text-gray-500">{statusMsg}</p>
+          </div>
         )}
       </div>
 
       {/* ── STATUS BAR ── */}
-      <div className="flex-shrink-0 px-5 py-1.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center">
+      <div className="flex-shrink-0 px-5 py-1.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
         <span className="text-xs text-gray-400 dark:text-gray-500">
           {selectedWords.size > 0
             ? `${selectedWords.size} word${selectedWords.size === 1 ? "" : "s"} selected`
-            : results.length > 0 ? `${results.length} words` : ""}
+            : listResults.length > 0 && !isSearching
+            ? `${totalMatches} words`
+            : ""}
         </span>
+        {activeListCount > 0 && (
+          <span className="text-xs text-gray-400 dark:text-gray-500">
+            {activeListCount} list{activeListCount === 1 ? "" : "s"} active
+          </span>
+        )}
       </div>
 
       {/* ── CONTEXT MENU ── */}
       {contextMenu && (
-        <ContextMenuPopup
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onCopy={handleCopy}
-        />
+        <ContextMenuPopup x={contextMenu.x} y={contextMenu.y} onCopy={handleCopy} />
       )}
+
+      {/* ── WORD LIST DRAWER ── */}
+      <WordListDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onRegistryChanged={refreshRegistry}
+      />
     </div>
-  );
-}
-
-// ── Context menu ──────────────────────────────────────────────────────────────
-
-function ContextMenuPopup({ x, y, onCopy }: {
-  x: number; y: number; onCopy: () => void;
-}) {
-  const CMItem = ({ label, onClick, disabled = false }: {
-    label: string; onClick?: () => void; disabled?: boolean;
-  }) => (
-    <button
-      onClick={disabled ? undefined : onClick}
-      className={`w-full text-left px-4 py-1.5 text-sm transition-colors ${
-        disabled
-          ? "context-menu-disabled cursor-default"
-          : "text-gray-700 dark:text-gray-200 hover:bg-blue-500 hover:text-white cursor-pointer"
-      }`}
-    >{label}</button>
-  );
-
-  return (
-    <div
-      style={{ position: "fixed", left: x, top: y, zIndex: 1000 }}
-      className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-48"
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <CMItem label="Copy" onClick={onCopy} />
-      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
-      <CMItem label="Look up definition" disabled />
-      <CMItem label="Open in external dictionary" disabled />
-      <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
-      <CMItem label="Copy to word list" disabled />
-    </div>
-  );
-}
-
-// ── Grid view ─────────────────────────────────────────────────────────────────
-
-interface ViewProps {
-  lengths: number[];
-  grouped: Record<number, MatchGroup[]>;
-  normalize: boolean;
-  variantMode: VariantMode;
-  selectedWords: Set<string>;
-  onWordClick: (word: string, e: React.MouseEvent) => void;
-  onWordRightClick: (word: string, e: React.MouseEvent) => void;
-}
-
-function GridView({ lengths, grouped, normalize, variantMode, selectedWords, onWordClick, onWordRightClick }: ViewProps) {
-  return (
-    <>
-      {lengths.map((len) => (
-        <div key={len} className="mb-5">
-          <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">
-            {len} letter{len === 1 ? "" : "s"} ({grouped[len].length})
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {grouped[len].map((r) => (
-              <div
-                key={r.normalized}
-                onClick={(e) => onWordClick(r.normalized, e)}
-                onContextMenu={(e) => onWordRightClick(r.normalized, e)}
-                className={`flex items-baseline gap-1 border rounded px-3 py-1.5 cursor-pointer select-none transition-colors ${
-                  selectedWords.has(r.normalized)
-                    ? "bg-blue-50 dark:bg-blue-900 border-blue-300 dark:border-blue-700"
-                    : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
-                }`}
-              >
-                <span className="font-mono text-sm text-gray-800 dark:text-gray-200">{r.normalized}</span>
-                {normalize && variantMode === "show" && r.variants.length > 0 && (
-                  <span className="text-xs text-gray-400">({r.variants.join(", ")})</span>
-                )}
-                {r.balance && <span className="font-mono text-xs text-blue-500">{r.balance}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </>
-  );
-}
-
-// ── List view ─────────────────────────────────────────────────────────────────
-
-function ListView({ lengths, grouped, normalize, variantMode, selectedWords, onWordClick, onWordRightClick }: ViewProps) {
-  const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
-  const toggle = (len: number) => setCollapsed((prev) => ({ ...prev, [len]: !prev[len] }));
-
-  return (
-    <>
-      {lengths.map((len) => {
-        const isCollapsed = collapsed[len] ?? false;
-        return (
-          <div key={len} className="mb-2 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-            <button
-              onClick={() => toggle(len)}
-              className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${
-                isCollapsed ? "bg-gray-50 dark:bg-gray-800" : "bg-gray-100 dark:bg-gray-700"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-xs transition-transform ${!isCollapsed ? "text-gray-500 dark:text-gray-300" : "text-gray-400 dark:text-gray-500"}`}
-                  style={{ display: "inline-block", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
-                >▾</span>
-                <span className={`text-xs font-semibold ${isCollapsed ? "text-gray-500 dark:text-gray-400" : "text-gray-700 dark:text-gray-200"}`}>
-                  {len} letter{len === 1 ? "" : "s"}
-                </span>
-              </div>
-              <span className="text-xs text-gray-400 dark:text-gray-400 bg-gray-50 dark:bg-gray-600 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-500">
-                {grouped[len].length} match{grouped[len].length === 1 ? "" : "es"}
-              </span>
-            </button>
-
-            {!isCollapsed && (
-              <div className="divide-y divide-gray-50 dark:divide-gray-800 bg-white dark:bg-gray-900">
-                {grouped[len].map((r) => (
-                  <div
-                    key={r.normalized}
-                    onClick={(e) => onWordClick(r.normalized, e)}
-                    onContextMenu={(e) => onWordRightClick(r.normalized, e)}
-                    className={`flex items-baseline justify-between px-3 py-1.5 cursor-pointer select-none transition-colors ${
-                      selectedWords.has(r.normalized)
-                        ? "bg-blue-50 dark:bg-blue-900"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-800"
-                    }`}
-                  >
-                    <span className="font-mono text-sm text-gray-800 dark:text-gray-200">{r.normalized}</span>
-                    <div className="flex items-baseline gap-2">
-                      {normalize && variantMode === "show" && r.variants.length > 0 && (
-                        <span className="text-xs text-gray-400">({r.variants.join(", ")})</span>
-                      )}
-                      {r.balance && <span className="font-mono text-xs text-blue-500">{r.balance}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </>
   );
 }

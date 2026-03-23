@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 scowl-2020.12.07/
 scowl.tar.gz
+
+# Generated word list cache files (built by the app, not checked in)
+*.tsc
+
+# Large word list source files that exceed GitHub's 100 MB limit
+dictionaries/titles.txt

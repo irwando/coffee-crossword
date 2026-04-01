@@ -49,6 +49,24 @@ and `false` when it completes or errors. The `search` command checks this flag
 and returns an error immediately if true. The UI shows a "Building index —
 search unavailable" message in this state.
 
+## Search cancellation
+`AppState.search_cancel: Mutex<Arc<AtomicBool>>` holds the cancel flag for the
+current search. On each new search: a fresh `Arc<AtomicBool>` is created and
+stored; the old flag is set to `true` to cancel any still-running prior search.
+The engine checks the flag every 8192 entries (`entry_count & 0x1FFF == 0`) and
+returns empty results when set. `cancel_search` Tauri command sets the flag from
+the frontend Cancel button. A `tokio::time::timeout_at` deadline wraps each
+per-list task; on timeout the cancel flag is set and remaining tasks get error
+results without being awaited. The public `search_cache` API is unchanged;
+`search_cache_cancellable` (pub(crate)) is the cancellable variant.
+
+## Normalize=OFF anagram matching
+Anagram matching is a letter-set operation — punctuation (apostrophes, hyphens)
+must not count as letters. In `matcher.rs`, `matches_anagram_exact` strips
+non-alphabetic/non-digit characters from the word before building `word_chars`,
+regardless of normalize mode. Without this, `canter's` had 8 chars and failed
+the length check against a 7-letter anagram set.
+
 ---
 
 ## Startup delay fix — implemented

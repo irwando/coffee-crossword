@@ -58,6 +58,25 @@ pub fn search_cache(
     grouping::search_cache(cache, &expr, min_len, max_len, normalize_mode)
 }
 
+/// Cancellable variant of search_cache for the Tauri search command.
+/// `cancel` is an AtomicBool that can be set to true from another thread
+/// to interrupt the search. Returns empty results when cancelled.
+pub(crate) fn search_cache_cancellable(
+    cache: &crate::cache::CacheHandle,
+    pattern: &str,
+    min_len: usize,
+    max_len: usize,
+    normalize_mode: bool,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Vec<MatchGroup> {
+    let expr = match parser::parse_logical(pattern) {
+        Some(e) => e,
+        None => return Vec::new(),
+    };
+
+    grouping::search_cache_with_cancel(cache, &expr, min_len, max_len, normalize_mode, cancel)
+}
+
 /// Validate a pattern string.
 /// Returns Ok(()) if valid, Err(reason) if not.
 pub fn validate_pattern(pattern: &str) -> Result<(), String> {

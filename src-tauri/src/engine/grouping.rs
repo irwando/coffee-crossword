@@ -3,6 +3,7 @@
 // key, and deduplicates variants.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::engine::ast::{LogicalExpr, MatchGroup};
 use crate::engine::matcher::eval_expr;
 use crate::engine::normalize::matching_form;
@@ -57,12 +58,35 @@ pub(crate) fn search_cache(
     max_len: usize,
     normalize_mode: bool,
 ) -> Vec<MatchGroup> {
-    let mut raw: Vec<RawMatch> = Vec::new();
+    static NEVER_CANCEL: AtomicBool = AtomicBool::new(false);
+    search_cache_inner(cache, expr, min_len, max_len, normalize_mode, &NEVER_CANCEL)
+}
 
-    // Determine which length buckets to scan.
-    // For patterns with wildcards or logical ops, we must scan all lengths
-    // in [min_len, max_len]. For fixed-length templates we can be precise,
-    // but conservative (scan all in range) is always correct.
+/// Cancellable variant — used by the Tauri search command so long-running
+/// searches can be interrupted. `cancel` is checked every 8192 entries;
+/// returns empty results if set.
+pub(crate) fn search_cache_with_cancel(
+    cache: &crate::cache::CacheHandle,
+    expr: &LogicalExpr,
+    min_len: usize,
+    max_len: usize,
+    normalize_mode: bool,
+    cancel: &AtomicBool,
+) -> Vec<MatchGroup> {
+    search_cache_inner(cache, expr, min_len, max_len, normalize_mode, cancel)
+}
+
+fn search_cache_inner(
+    cache: &crate::cache::CacheHandle,
+    expr: &LogicalExpr,
+    min_len: usize,
+    max_len: usize,
+    normalize_mode: bool,
+    cancel: &AtomicBool,
+) -> Vec<MatchGroup> {
+    let mut raw: Vec<RawMatch> = Vec::new();
+    let mut entry_count: u32 = 0;
+
     for len in min_len..=max_len.min(255) {
         let (start, end) = cache.length_bucket(len);
         if start >= end {
@@ -70,6 +94,12 @@ pub(crate) fn search_cache(
         }
 
         for i in start..end {
+            // Check cancel flag every 8192 entries (bitmask avoids division).
+            entry_count = entry_count.wrapping_add(1);
+            if entry_count & 0x1FFF == 0 && cancel.load(Ordering::Relaxed) {
+                return Vec::new();
+            }
+
             let entry = cache.get_entry(i);
 
             // Choose matching form based on normalize mode.

@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -22,7 +23,7 @@ use tauri::{
 
 use crate::cache::{build_cache, open_cache, CacheHandle};
 use crate::dedup::{deduplicate, ListSearchResult};
-use crate::engine::{search_cache, MatchGroup};
+use crate::engine::{search_cache_cancellable, MatchGroup};
 use crate::registry::{build_registry, update_entry_state, CacheState, Registry};
 
 // ── App state ────────────────────────────────────────────────────────────────
@@ -38,6 +39,10 @@ pub struct AppState {
     pub handles_loaded: AtomicBool,
     /// Path to the dictionaries folder (set once at startup).
     pub dict_dir: PathBuf,
+    /// Shared cancel flag for the currently-running search.
+    /// Replaced with a new Arc at the start of each search.
+    /// Setting the flag to true causes search tasks to return early.
+    pub search_cancel: Mutex<Arc<AtomicBool>>,
 }
 
 // ── Serialisable types sent to the frontend ──────────────────────────────────
@@ -312,6 +317,7 @@ async fn search(
     min_len: usize,
     max_len: usize,
     normalize: bool,
+    timeout_secs: u64,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -350,6 +356,14 @@ async fn search(
         return Ok(());
     }
 
+    // Rotate the cancel flag: cancel any in-flight search, create a fresh flag for this one.
+    let cancel_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    {
+        let mut lock = state.search_cancel.lock().map_err(|e| e.to_string())?;
+        lock.store(true, Ordering::SeqCst); // cancel previous search if any
+        *lock = Arc::clone(&cancel_flag);
+    }
+
     // Emit search:start so frontend can create skeleton columns immediately.
     let _ = app.emit("search:start", SearchStartPayload {
         active_ids: active_ids.clone(),
@@ -357,16 +371,17 @@ async fn search(
 
     // Spawn parallel search tasks — one per active list.
     let pattern = Arc::new(pattern);
-    let mut task_handles = Vec::new();
+    let mut task_handles: Vec<(String, String, tokio::task::JoinHandle<ListSearchResult>)> = Vec::new();
 
     for (list_id, list_name, cache_handle) in list_handles {
         let pattern = Arc::clone(&pattern);
+        let cancel = Arc::clone(&cancel_flag);
         let app_clone = app.clone();
         let lid = list_id.clone();
         let lname = list_name.clone();
 
         let task = tokio::task::spawn_blocking(move || {
-            let results = search_cache(&cache_handle, &pattern, min_len, max_len, normalize);
+            let results = search_cache_cancellable(&cache_handle, &pattern, min_len, max_len, normalize, &cancel);
             let payload = SearchListResultPayload {
                 list_id: lid.clone(),
                 list_name: lname,
@@ -382,24 +397,44 @@ async fn search(
             }
         });
 
-        task_handles.push(task);
+        task_handles.push((list_id, list_name, task));
     }
 
-    // Wait for all tasks in priority order, then apply dedup.
+    // Wait for all tasks with a global timeout, then apply dedup.
     let app_clone = app.clone();
     tokio::spawn(async move {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(timeout_secs.max(1));
         let mut all_results: Vec<ListSearchResult> = Vec::new();
+        let mut timed_out = false;
 
-        for task in task_handles {
-            match task.await {
-                Ok(result) => all_results.push(result),
-                Err(e) => {
-                    // Task panicked — push error result.
+        for (list_id, list_name, task) in task_handles {
+            if timed_out {
+                // Deadline already passed — push a cancelled result without awaiting.
+                all_results.push(ListSearchResult {
+                    list_id,
+                    list_name,
+                    results: vec![],
+                    error: Some("Cancelled".to_string()),
+                });
+                continue;
+            }
+            match tokio::time::timeout_at(deadline, task).await {
+                Ok(Ok(result)) => all_results.push(result),
+                Ok(Err(e)) => all_results.push(ListSearchResult {
+                    list_id,
+                    list_name,
+                    results: vec![],
+                    error: Some(format!("Search task failed: {}", e)),
+                }),
+                Err(_elapsed) => {
+                    // Timeout expired — cancel remaining tasks and move on.
+                    cancel_flag.store(true, Ordering::SeqCst);
+                    timed_out = true;
                     all_results.push(ListSearchResult {
-                        list_id: "unknown".to_string(),
-                        list_name: "Unknown".to_string(),
+                        list_id,
+                        list_name,
                         results: vec![],
-                        error: Some(format!("Search task failed: {}", e)),
+                        error: Some("Search timed out".to_string()),
                     });
                 }
             }
@@ -445,6 +480,17 @@ async fn search(
         let _ = app_clone.emit("search:complete", serde_json::Value::Null);
     });
 
+    Ok(())
+}
+
+/// Cancel the currently-running search by setting the shared cancel flag.
+/// The running search tasks check this flag every ~8192 entries and return
+/// early when set. search:complete will still fire via normal flow.
+#[tauri::command]
+async fn cancel_search(state: State<'_, AppState>) -> Result<(), String> {
+    if let Ok(lock) = state.search_cancel.lock() {
+        lock.store(true, Ordering::SeqCst);
+    }
     Ok(())
 }
 
@@ -554,6 +600,7 @@ pub fn run() {
                 build_in_progress: AtomicBool::new(false),
                 handles_loaded: AtomicBool::new(false),
                 dict_dir,
+                search_cancel: Mutex::new(Arc::new(AtomicBool::new(false))),
             });
 
             // ── Open cache handles in background ───────────────────────────
@@ -652,6 +699,12 @@ pub fn run() {
 
             let reset_layout = MenuItem::with_id(app, "reset_layout", "Reset to Default Layout", true, None::<&str>)?;
 
+            let layout_rows = CheckMenuItem::with_id(app, "layout_rows", "Rows", true, true, None::<&str>)?;
+            let layout_cols = CheckMenuItem::with_id(app, "layout_cols", "Columns", true, false, None::<&str>)?;
+            let layout_submenu = Submenu::with_items(
+                app, "Layout", true, &[&layout_rows, &layout_cols],
+            )?;
+
             let view_menu = Submenu::with_items(
                 app,
                 "View",
@@ -660,6 +713,8 @@ pub fn run() {
                     &reference_submenu,
                     &toggle_description,
                     &toggle_options,
+                    &PredefinedMenuItem::separator(app)?,
+                    &layout_submenu,
                     &PredefinedMenuItem::separator(app)?,
                     &appearance_menu,
                     &PredefinedMenuItem::separator(app)?,
@@ -677,6 +732,10 @@ pub fn run() {
             let rf = ref_full.clone();
             let rc = ref_compact.clone();
             let ro = ref_off.clone();
+            let lr = layout_rows.clone();
+            let lc = layout_cols.clone();
+            let lr2 = layout_rows.clone();
+            let lc2 = layout_cols.clone();
 
             app.on_menu_event(move |app, event| {
                 let window = app.get_webview_window("main");
@@ -689,10 +748,14 @@ pub fn run() {
                     "manage_lists"       => emit("menu:lists", ""),
                     "toggle_description" => emit("menu:toggle", "description"),
                     "toggle_options"     => emit("menu:toggle", "options"),
+                    "layout_rows" => { let _ = lr.set_checked(true); let _ = lc.set_checked(false); emit("menu:layout", "stacked"); }
+                    "layout_cols" => { let _ = lr.set_checked(false); let _ = lc.set_checked(true); emit("menu:layout", "columns"); }
                     "reset_layout" => {
                         let _ = rf.set_checked(true);
                         let _ = rc.set_checked(false);
                         let _ = ro.set_checked(false);
+                        let _ = lr2.set_checked(true);
+                        let _ = lc2.set_checked(false);
                         emit("menu:reset_layout", "");
                     }
                     "ref_full" => { let _ = rf.set_checked(true); let _ = rc.set_checked(false); let _ = ro.set_checked(false); emit("menu:reference", "full"); }
@@ -709,6 +772,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             search,
+            cancel_search,
             describe_pattern,
             validate_pattern,
             get_registry,

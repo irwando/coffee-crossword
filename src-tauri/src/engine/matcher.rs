@@ -330,7 +330,11 @@ fn matches_anagram_exact(
     dot_count: Option<usize>,
     has_wildcard: bool,
 ) -> Option<String> {
-    let word_chars: Vec<char> = word.chars().collect();
+    // Strip punctuation before building the character set: anagram matching is a
+    // letter-set operation, so apostrophes and other punctuation in raw words
+    // (e.g. "canter's" with normalize=off) must not count as letters.
+    let word_letters: String = word.chars().filter(|c| c.is_alphabetic() || c.is_ascii_digit()).collect();
+    let word_chars: Vec<char> = word_letters.chars().collect();
 
     let (plain_letters, template_subs, anagram_subs, _blank_count, choice_slots) =
         decompose_anagram_chars(anagram_chars);

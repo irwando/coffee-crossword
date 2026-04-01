@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { listen } from "@tauri-apps/api/event";
@@ -28,6 +28,7 @@ type VariantMode = "show" | "hide";
 type ViewMode = "grid" | "list";
 type AppearanceMode = "light" | "dark" | "system";
 type ReferenceMode = "full" | "compact" | "off";
+type LayoutMode = "stacked" | "columns";
 
 // Per-list search state
 interface ListResults {
@@ -66,6 +67,8 @@ const DEFAULTS = {
   showDescription: true,
   showOptions: true,
   appearance: "system" as AppearanceMode,
+  layoutMode: "stacked" as LayoutMode,
+  searchTimeout: 30,
 };
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -161,11 +164,11 @@ function ReferenceFull({ onPatternClick }: { onPatternClick: (p: string) => void
   );
 }
 
-function ReferenceCompact({ onPatternClick }: { onPatternClick: (p: string) => void }) {
+function ReferenceCompact({ onPatternClick, singleColumn = false }: { onPatternClick: (p: string) => void; singleColumn?: boolean }) {
   return (
     <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
       <ReferenceHeader />
-      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+      <div className={`grid ${singleColumn ? "grid-cols-1" : "grid-cols-2"} gap-x-4 gap-y-0.5`}>
         {REFERENCE_ROWS.map((row) => (
           <div
             key={row.feature}
@@ -214,6 +217,48 @@ function ContextMenuPopup({ x, y, onCopy }: { x: number; y: number; onCopy: () =
   );
 }
 
+// ── Drag divider ──────────────────────────────────────────────────────────────
+
+function DragDivider({ direction, onDrag }: {
+  direction: "horizontal" | "vertical";
+  onDrag: (deltaPx: number) => void;
+}) {
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    let lastPos = direction === "horizontal" ? e.clientY : e.clientX;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      const pos = direction === "horizontal" ? ev.clientY : ev.clientX;
+      const delta = pos - lastPos;
+      lastPos = pos;
+      if (delta !== 0) onDrag(delta);
+    };
+    const onUp = () => {
+      document.body.style.userSelect = prevSelect;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const isH = direction === "horizontal";
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      className={`flex-shrink-0 flex items-center justify-center group ${
+        isH ? "h-2 w-full cursor-row-resize" : "w-2 h-full cursor-col-resize"
+      }`}
+    >
+      <div className={`rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-blue-400 dark:group-hover:bg-blue-500 transition-colors ${
+        isH ? "w-8 h-0.5" : "h-8 w-0.5"
+      }`} />
+    </div>
+  );
+}
+
 // ── Main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -235,6 +280,8 @@ export default function App() {
   const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // paneSizes: flex-grow per pane; initialized/reset when active list count changes
+  const [paneSizes, setPaneSizes] = useState<number[]>([]);
 
   // ── Settings ──────────────────────────────────────────────────────────
   const [normalize, setNormalize] = useState(DEFAULTS.normalize);
@@ -246,15 +293,26 @@ export default function App() {
   const [showDescription, setShowDescription] = useState(DEFAULTS.showDescription);
   const [showOptions, setShowOptions] = useState(DEFAULTS.showOptions);
   const [appearance, setAppearance] = useState<AppearanceMode>(DEFAULTS.appearance);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(DEFAULTS.layoutMode);
+  const [searchTimeout, setSearchTimeout] = useState(DEFAULTS.searchTimeout);
+  const [refColWidth, setRefColWidth] = useState(200);
 
   // ── Refs ──────────────────────────────────────────────────────────────
   const storeRef = useRef<Store | null>(null);
   const explainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settingsLoaded = useRef(false);
   const historyRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // All words currently visible (for shift-click range selection)
   const allWords = listResults.flatMap((lr) => (lr.results ?? []).map((r) => r.normalized));
+
+  // ── Pane sizes ────────────────────────────────────────────────────────────
+  // Reset to equal sizes when the number of active lists changes.
+  const activeListCount = registry.active_ids.length;
+  useEffect(() => {
+    setPaneSizes(Array(activeListCount).fill(1));
+  }, [activeListCount]);
 
   // ── Theme ────────────────────────────────────────────────────────────────
   useEffect(() => { applyTheme(appearance); }, [appearance]);
@@ -277,8 +335,11 @@ export default function App() {
         store.get<string[]>("word_list_active_ids"),
         store.get<Record<string, string>>("word_list_display_names"),
         store.get<boolean>("dedup_enabled"),
+        store.get<LayoutMode>("layoutMode"),
+        store.get<number>("searchTimeout"),
+        store.get<number>("refColWidth"),
       ]).then(([n, vm, view, min, max, ref_, desc, opts, app_, hist,
-                activeIds, displayNames, dedup]) => {
+                activeIds, displayNames, dedup, layout, timeout_, refW]) => {
         if (n !== null && n !== undefined) setNormalize(n);
         if (vm) setVariantMode(vm);
         if (view) setViewMode(view);
@@ -289,6 +350,9 @@ export default function App() {
         if (opts !== null && opts !== undefined) setShowOptions(opts);
         if (app_) { setAppearance(app_); applyTheme(app_); }
         if (hist) setHistory(hist);
+        if (layout) setLayoutMode(layout);
+        if (timeout_ !== null && timeout_ !== undefined) setSearchTimeout(timeout_);
+        if (refW !== null && refW !== undefined) setRefColWidth(refW);
         settingsLoaded.current = true;
 
         // Restore active list IDs and display names to backend, then load registry.
@@ -347,7 +411,10 @@ export default function App() {
     s.set("showDescription", showDescription);
     s.set("showOptions", showOptions);
     s.set("appearance", appearance);
-  }, [normalize, variantMode, viewMode, minLen, maxLen, referenceMode, showDescription, showOptions, appearance]);
+    s.set("layoutMode", layoutMode);
+    s.set("searchTimeout", searchTimeout);
+    s.set("refColWidth", refColWidth);
+  }, [normalize, variantMode, viewMode, minLen, maxLen, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
 
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
@@ -469,6 +536,8 @@ export default function App() {
       applyTheme(mode);
     }).then((u) => unlisteners.push(u));
 
+    listen<string>("menu:layout", (e) => setLayoutMode(e.payload as LayoutMode)).then((u) => unlisteners.push(u));
+
     listen<string>("menu:reset_layout", () => {
       setReferenceMode(DEFAULTS.referenceMode);
       setShowDescription(DEFAULTS.showDescription);
@@ -480,6 +549,8 @@ export default function App() {
       setMaxLen(DEFAULTS.maxLen);
       setAppearance(DEFAULTS.appearance);
       applyTheme(DEFAULTS.appearance);
+      setLayoutMode(DEFAULTS.layoutMode);
+      setPaneSizes([]);
     }).then((u) => unlisteners.push(u));
 
     listen("menu:lists", () => setDrawerOpen(true)).then((u) => unlisteners.push(u));
@@ -540,7 +611,7 @@ export default function App() {
     }
 
     try {
-      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize });
+      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize, timeoutSecs: searchTimeout });
       // Results arrive via events (search:start, search:list-result, search:complete).
       // Update history after issuing the search.
       setHistory((prev) => {
@@ -552,7 +623,11 @@ export default function App() {
       setStatusMsg(`Error: ${err}`);
       setIsSearching(false);
     }
-  }, [pattern, minLen, maxLen, normalize, listsLoading, buildInProgress]);
+  }, [pattern, minLen, maxLen, normalize, searchTimeout, listsLoading, buildInProgress]);
+
+  const doCancel = useCallback(async () => {
+    await invoke("cancel_search");
+  }, []);
 
   // Update history match count when search completes.
   useEffect(() => {
@@ -617,13 +692,35 @@ export default function App() {
     setContextMenu(null);
   }, [selectedWords]);
 
+  // ── Pane resize ────────────────────────────────────────────────────────
+  const adjustPaneSizes = useCallback((a: number, b: number, deltaPx: number) => {
+    if (!containerRef.current) return;
+    const containerSize = layoutMode === "stacked"
+      ? containerRef.current.offsetHeight
+      : containerRef.current.offsetWidth;
+    if (containerSize === 0) return;
+    const minPx = layoutMode === "stacked" ? 80 : 120;
+    setPaneSizes((prev) => {
+      const totalGrow = prev.reduce((s, v) => s + v, 0);
+      const deltaGrow = (deltaPx / containerSize) * totalGrow;
+      const nextA = prev[a] + deltaGrow;
+      const nextB = prev[b] - deltaGrow;
+      // Only apply if both panes stay above minimum pixel size.
+      if ((nextA / totalGrow) * containerSize < minPx) return prev;
+      if ((nextB / totalGrow) * containerSize < minPx) return prev;
+      const next = [...prev];
+      next[a] = nextA;
+      next[b] = nextB;
+      return next;
+    });
+  }, [layoutMode]);
+
   // ── Registry helpers ───────────────────────────────────────────────────
   const refreshRegistry = useCallback(() => {
     invoke<Registry>("get_registry").then(setRegistry).catch(console.error);
   }, []);
 
   const totalMatches = listResults.reduce((sum, lr) => sum + (lr.results?.length ?? 0), 0);
-  const activeListCount = registry.active_ids.length;
   const hasMultipleLists = activeListCount > 1;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -634,13 +731,14 @@ export default function App() {
       onClick={() => setContextMenu(null)}
     >
       {/* ── STATIC HEADER ── */}
-      <div className="border-b border-gray-200 dark:border-gray-700 px-5 pt-3 pb-0 flex-shrink-0 bg-white dark:bg-gray-900">
+      <div className="border-b border-gray-200 dark:border-gray-700 px-5 pt-2 pb-0 flex-shrink-0 bg-white dark:bg-gray-900">
 
-        {referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} />}
-        {referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} />}
+        {/* Hide reference from header when column layout shows it as a dedicated column */}
+        {!(layoutMode === "columns" && hasMultipleLists) && referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} />}
+        {!(layoutMode === "columns" && hasMultipleLists) && referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} />}
 
         {/* Search row */}
-        <div className="flex gap-2 mb-1.5" ref={historyRef}>
+        <div className="flex gap-2 mb-1" ref={historyRef}>
           <div className="relative flex-1">
             <input
               type="text"
@@ -685,13 +783,22 @@ export default function App() {
             )}
           </div>
 
-          <button
-            onClick={() => doSearch()}
-            disabled={isSearching || buildInProgress || listsLoading}
-            className="px-5 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors flex-shrink-0"
-          >
-            {isSearching ? "…" : "Search"}
-          </button>
+          {isSearching ? (
+            <button
+              onClick={doCancel}
+              className="px-5 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors flex-shrink-0"
+            >
+              Cancel
+            </button>
+          ) : (
+            <button
+              onClick={() => doSearch()}
+              disabled={buildInProgress || listsLoading}
+              className="px-5 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors flex-shrink-0"
+            >
+              Search
+            </button>
+          )}
 
           {/* Word list button */}
           <button
@@ -709,7 +816,7 @@ export default function App() {
 
         {/* Pattern description */}
         {showDescription && (
-          <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-1.5 mb-1.5 leading-relaxed">
+          <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-1 mb-1 leading-relaxed">
             {explanation || (
               <span className="text-gray-400 dark:text-gray-500 italic">Enter a pattern to see a description</span>
             )}
@@ -718,21 +825,21 @@ export default function App() {
 
         {/* Loading banner — shown while background mmap task is running */}
         {listsLoading && (
-          <div className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-1.5 mb-1.5">
+          <div className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-1 mb-1">
             Loading word lists…
           </div>
         )}
 
         {/* Build-in-progress banner */}
         {!listsLoading && buildInProgress && (
-          <div className="text-xs text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-1.5 mb-1.5">
+          <div className="text-xs text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-1 mb-1">
             Building word list index — search unavailable
           </div>
         )}
 
         {/* No active lists warning */}
         {!listsLoading && !buildInProgress && activeListCount === 0 && (
-          <div className="text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-1.5 mb-1.5">
+          <div className="text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-1 mb-1">
             No word lists active.{" "}
             <button onClick={() => setDrawerOpen(true)} className="underline hover:no-underline">
               Open Word Lists
@@ -743,7 +850,7 @@ export default function App() {
 
         {/* Options */}
         {showOptions && (
-          <div className="flex flex-wrap items-center gap-4 py-2">
+          <div className="flex flex-wrap items-center gap-4 py-1">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <div
                 onClick={() => setNormalize(!normalize)}
@@ -788,8 +895,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Word length filter */}
-        <div className="flex items-center gap-2 pb-2.5 text-xs text-gray-400">
+        {/* Word length filter + timeout */}
+        <div className="flex items-center gap-2 pb-2 text-xs text-gray-400">
           <span>Word length:</span>
           <input
             type="number" value={minLen} min={1} max={maxLen}
@@ -803,12 +910,19 @@ export default function App() {
             className="w-12 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
           />
           <span>letters</span>
+          <span className="ml-auto">Timeout:</span>
+          <input
+            type="number" value={searchTimeout} min={5} max={300}
+            onChange={(e) => setSearchTimeout(Math.min(300, Math.max(5, Number(e.target.value))))}
+            className="w-14 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
+          />
+          <span>s</span>
         </div>
       </div>
 
       {/* ── RESULTS HEADER (shown when results exist) ── */}
       {listResults.length > 0 && (
-        <div className="flex items-center justify-between px-5 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-1 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-baseline gap-2">
             {isSearching ? (
               <span className="text-sm text-gray-400 animate-pulse">Searching…</span>
@@ -848,52 +962,76 @@ export default function App() {
           </div>
         )}
 
-        {/* Multiple lists: stacked panes with independent scroll, proportional height */}
-        {hasMultipleLists && listResults.length > 0 && (
-          <div className="h-full flex flex-col gap-2 px-5 py-3 overflow-hidden bg-white dark:bg-gray-900">
-            {(() => {
-              return listResults.map((lr) => {
-                // Once the full search completes, size panes proportional to match count.
-                // Using !isSearching (set false on search:complete) rather than checking
-                // per-list loading flags, so the resize happens once at the end — not
-                // mid-stream when the last individual list result arrives.
-                const count = lr.results?.length ?? 0;
-                const grow = !isSearching ? Math.max(count, 1) : 1;
-                return (
-                  <div
-                    key={lr.listId}
-                    style={{ flex: `${grow} 1 0%`, minHeight: "120px", overflow: "hidden" }}
-                  >
-                    <ResultsColumn
-                      listId={lr.listId}
-                      listName={lr.listName}
-                      entryCount={lr.entryCount}
-                      results={lr.results}
-                      isLoading={lr.isLoading}
-                      normalize={normalize}
-                      variantMode={variantMode}
-                      viewMode={viewMode}
-                      selectedWords={selectedWords}
-                      onWordClick={handleWordClick}
-                      onWordRightClick={handleWordRightClick}
-                    />
-                  </div>
-                );
-              });
-            })()}
-          </div>
-        )}
+        {/* Multiple lists: outer container — always rendered so ref column shows before first search */}
+        {hasMultipleLists && (
+          <div className={`h-full flex ${layoutMode === "columns" ? "flex-row" : "flex-col"} overflow-hidden bg-white dark:bg-gray-900`}>
+            {/* Reference column — leftmost in column mode, always visible, width draggable */}
+            {layoutMode === "columns" && referenceMode !== "off" && (
+              <>
+                <div
+                  className="flex-shrink-0 overflow-y-auto px-3 py-3"
+                  style={{ width: refColWidth, minWidth: 120, maxWidth: 400 }}
+                >
+                  {referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} />}
+                  {referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} singleColumn />}
+                </div>
+                <DragDivider
+                  direction="vertical"
+                  onDrag={(delta) => setRefColWidth((w) => Math.min(400, Math.max(120, w + delta)))}
+                />
+              </>
+            )}
 
-        {/* Multiple lists but no search yet */}
-        {hasMultipleLists && listResults.length === 0 && (
-          <div className="h-full overflow-y-auto px-5 py-3 bg-white dark:bg-gray-900">
-            <p className="text-sm text-gray-400 dark:text-gray-500">{statusMsg}</p>
+            {/* Results panes or pre-search placeholder */}
+            {listResults.length === 0 ? (
+              <div className="flex-1 overflow-y-auto px-5 py-3">
+                <p className="text-sm text-gray-400 dark:text-gray-500">{statusMsg}</p>
+              </div>
+            ) : (
+              <div
+                ref={containerRef}
+                className={`flex-1 flex ${layoutMode === "stacked" ? "flex-col" : "flex-row"} px-5 py-3 overflow-hidden`}
+              >
+                {listResults.map((lr, i) => (
+                  <Fragment key={lr.listId}>
+                    {i > 0 && (
+                      <DragDivider
+                        direction={layoutMode === "stacked" ? "horizontal" : "vertical"}
+                        onDrag={(delta) => adjustPaneSizes(i - 1, i, delta)}
+                      />
+                    )}
+                    <div
+                      style={{
+                        flex: `${paneSizes[i] ?? 1} 1 0%`,
+                        minHeight: layoutMode === "stacked" ? "120px" : undefined,
+                        minWidth: layoutMode === "columns" ? "150px" : undefined,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <ResultsColumn
+                        listId={lr.listId}
+                        listName={lr.listName}
+                        entryCount={lr.entryCount}
+                        results={lr.results}
+                        isLoading={lr.isLoading}
+                        normalize={normalize}
+                        variantMode={variantMode}
+                        viewMode={viewMode}
+                        selectedWords={selectedWords}
+                        onWordClick={handleWordClick}
+                        onWordRightClick={handleWordRightClick}
+                      />
+                    </div>
+                  </Fragment>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* ── STATUS BAR ── */}
-      <div className="flex-shrink-0 px-5 py-1.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
+      <div className="flex-shrink-0 px-5 py-1 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
         <span className="text-xs text-gray-400 dark:text-gray-500">
           {selectedWords.size > 0
             ? `${selectedWords.size} word${selectedWords.size === 1 ? "" : "s"} selected`

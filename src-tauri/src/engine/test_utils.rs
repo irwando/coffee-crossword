@@ -11,6 +11,7 @@ pub(crate) fn word_list() -> Vec<String> {
     vec![
         // Core test words
         "electron", "canter", "nectar", "recant", "trance",
+        "canters", "canter's", "Canter's",
         "aardvark", "elephant", "cat", "act", "arc",
         "drinker", "beside", "bodice", "edible",
         "maharaja", "quick", "quack", "quirk", "quark",

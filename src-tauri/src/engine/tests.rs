@@ -46,6 +46,9 @@ fn sw_raw(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
 #[test] fn test_punct_hyphenated_4_2_2() { let r = sw_raw("....-..-.."); let k = keys(&r); assert!(k.iter().any(|&w| w == "pick-me-up" || w == "well-to-do"), "got: {:?}", k); }
 #[test] fn test_punct_wildcard_with_hyphen() { let r = sw_raw("*-*"); assert!(!r.is_empty()); for res in &r { assert!(res.normalized.contains('-')); } }
 #[test] fn test_punct_normalize_on_ignores_punctuation() { let r = sw("e........"); assert!(r.iter().any(|r| r.normalized == "escargots")); }
+// When normalize=off, anagram matching strips punctuation from the word so that
+// "canter's" (apostrophe is not a letter) matches the same letter-set as "canters".
+#[test] fn test_anagram_raw_matches_apostrophe_words() { let r = sw_raw(";acenrt."); let k = keys(&r); assert!(k.contains(&"canters"), "canters should match"); assert!(k.contains(&"canter's"), "canter's should match with normalize=off (apostrophe stripped for anagram matching)"); }
 #[test] fn test_validate_pattern_valid() { use crate::engine::mod_pub::validate_pattern; assert!(validate_pattern(";acenrt").is_ok()); assert!(validate_pattern(".l...r.n").is_ok()); assert!(validate_pattern("c* & !cat*").is_ok()); assert!(validate_pattern("@....").is_ok()); assert!(validate_pattern("12321").is_ok()); }
 #[test] fn test_validate_pattern_empty() { use crate::engine::mod_pub::validate_pattern; assert!(validate_pattern("").is_err()); assert!(validate_pattern("   ").is_err()); }
 #[test] fn test_describe_pattern_template() { use crate::engine::mod_pub::describe_pattern; let d = describe_pattern(".l...r.n").unwrap(); assert!(d.contains("8"), "should mention 8 letters: {}", d); }

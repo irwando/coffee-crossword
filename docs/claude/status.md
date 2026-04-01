@@ -28,15 +28,18 @@
 - [x] Stacked multi-list results UI (independent scrolling panes)
 - [x] Right-side sliding Word List drawer
 - [x] CLI: multi-dict, --build-cache, --no-cache, --no-dedup
-- [ ] Draggable divider between stacked panes (deferred)
-- [ ] Column layout (deferred to Phase 4)
+- [x] Draggable divider between stacked panes
+- [x] Column layout (side-by-side panes with layout toggle in View → Layout)
+- [x] Draggable reference panel column in column view (resizable, persisted)
+- [x] Cancel button — Search → Cancel during active search; cancels via AtomicBool flag
+- [x] Configurable search timeout (default 30s, persisted)
+- [x] Normalize=OFF anagram fix — punctuation stripped before letter-set matching
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window
 - [ ] Full text search mode
 - [ ] External lookup (web search)
 - [ ] Navigation history (back/forward)
-- [ ] Column layout for multi-list results
 
 ### Phase 5 — polish
 - [ ] Export results (text file)
@@ -104,8 +107,10 @@
   - [x] `App.tsx` — multi-list UI, streaming events
   - [x] Menu wiring ("Manage Word Lists…" + Cmd+Shift+L)
   - [x] Tests for all new modules
-  - [ ] Draggable divider between stacked panes (deferred)
-- [ ] Phase 4: Definition window, full text search, external lookup, column layout
+  - [x] Draggable divider between stacked panes
+  - [x] Column layout with draggable dividers and resizable reference column
+  - [x] Cancel button + search timeout + normalize=OFF anagram fix
+- [ ] Phase 4: Definition window, full text search, external lookup
 - [ ] Phase 5: Export, print, sorting, filtering
 
 ---

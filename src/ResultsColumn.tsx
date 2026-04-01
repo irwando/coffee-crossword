@@ -31,7 +31,7 @@ interface ResultsColumnProps {
 
 function SkeletonRow() {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-50 dark:border-gray-800">
+    <div className="flex items-center gap-2 px-3 py-1 border-b border-gray-50 dark:border-gray-800">
       <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" style={{ width: `${60 + Math.random() * 80}px` }} />
     </div>
   );
@@ -43,7 +43,7 @@ function SkeletonContent() {
     <div className="py-2">
       {[3, 6].map((len) => (
         <div key={len} className="mb-3">
-          <div className="px-3 py-1.5 mb-1">
+          <div className="px-3 py-1 mb-0.5">
             <div className="h-2.5 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-20" />
           </div>
           {Array.from({ length: len }).map((_, i) => (
@@ -71,17 +71,17 @@ function GridView({
   return (
     <>
       {lengths.map((len) => (
-        <div key={len} className="mb-5">
-          <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2 px-3">
+        <div key={len} className="mb-3">
+          <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1 px-3">
             {len} letter{len === 1 ? "" : "s"} ({grouped[len].length})
           </div>
-          <div className="flex flex-wrap gap-2 px-3">
+          <div className="flex flex-wrap gap-1.5 px-3">
             {grouped[len].map((r) => (
               <div
                 key={r.normalized}
                 onClick={(e) => onWordClick(r.normalized, e)}
                 onContextMenu={(e) => onWordRightClick(r.normalized, e)}
-                className={`flex items-baseline gap-1 border rounded px-3 py-1.5 cursor-pointer select-none transition-colors ${
+                className={`flex items-baseline gap-1 border rounded px-2.5 py-0.5 cursor-pointer select-none transition-colors ${
                   selectedWords.has(r.normalized)
                     ? "bg-blue-50 dark:bg-blue-900 border-blue-300 dark:border-blue-700"
                     : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
@@ -122,10 +122,10 @@ function ListView({
       {lengths.map((len) => {
         const isCollapsed = collapsed[len] ?? false;
         return (
-          <div key={len} className="mb-2 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mx-3">
+          <div key={len} className="mb-1 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden mx-3">
             <button
               onClick={() => toggle(len)}
-              className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${
+              className={`w-full flex items-center justify-between px-3 py-1 text-left transition-colors ${
                 isCollapsed ? "bg-gray-50 dark:bg-gray-800" : "bg-gray-100 dark:bg-gray-700"
               }`}
             >
@@ -149,7 +149,7 @@ function ListView({
                     key={r.normalized}
                     onClick={(e) => onWordClick(r.normalized, e)}
                     onContextMenu={(e) => onWordRightClick(r.normalized, e)}
-                    className={`flex items-baseline justify-between px-3 py-1.5 cursor-pointer select-none transition-colors ${
+                    className={`flex items-baseline justify-between px-3 py-0.5 cursor-pointer select-none transition-colors ${
                       selectedWords.has(r.normalized)
                         ? "bg-blue-50 dark:bg-blue-900"
                         : "hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -176,7 +176,7 @@ function ListView({
 // ── ResultsColumn ─────────────────────────────────────────────────────────────
 
 export default function ResultsColumn({
-  listId,
+  listId: _listId,
   listName,
   entryCount,
   results,
@@ -202,7 +202,7 @@ export default function ResultsColumn({
   return (
     <div className="flex flex-col h-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-900">
       {/* Column header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+      <div className="flex items-center justify-between px-3 py-1 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{listName}</span>
           {entryCount > 0 && (
@@ -229,7 +229,7 @@ export default function ResultsColumn({
         )}
 
         {!isLoading && results !== null && results.length > 0 && viewMode === "grid" && (
-          <div className="py-3">
+          <div className="py-2">
             <GridView
               lengths={lengths}
               grouped={grouped}
@@ -243,7 +243,7 @@ export default function ResultsColumn({
         )}
 
         {!isLoading && results !== null && results.length > 0 && viewMode === "list" && (
-          <div className="py-3">
+          <div className="py-2">
             <ListView
               lengths={lengths}
               grouped={grouped}

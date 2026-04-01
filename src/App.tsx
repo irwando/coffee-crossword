@@ -25,6 +25,7 @@ interface ContextMenu {
   x: number;
   y: number;
   word: string;
+  originalWord: string; // verbatim original form, used for external lookup
   externalLookupUrl: string | null;
   externalLookupListName: string | null;
 }
@@ -696,7 +697,7 @@ export default function App() {
     }
   }, [allWords, selectedWords]);
 
-  const handleWordRightClick = useCallback((word: string, listId: string, e: React.MouseEvent) => {
+  const handleWordRightClick = useCallback((word: string, originalWord: string, listId: string, e: React.MouseEvent) => {
     e.preventDefault();
     setSelectedWords((prev) => { if (!prev.has(word)) return new Set([word]); return prev; });
     const entry = registry.available.find((en) => en.id === listId);
@@ -704,6 +705,7 @@ export default function App() {
       x: e.clientX,
       y: e.clientY,
       word,
+      originalWord,
       externalLookupUrl: entry?.external_lookup ?? null,
       externalLookupListName: entry?.display_name ?? null,
     });
@@ -718,7 +720,7 @@ export default function App() {
   const handleExternalLookup = useCallback(() => {
     if (!contextMenu?.externalLookupUrl) return;
     setExternalLookup({
-      word: contextMenu.word,
+      word: contextMenu.originalWord,
       url: contextMenu.externalLookupUrl,
       listName: contextMenu.externalLookupListName ?? "",
     });

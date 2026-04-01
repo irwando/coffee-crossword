@@ -24,7 +24,7 @@ interface ResultsColumnProps {
   viewMode: ViewMode;
   selectedWords: Set<string>;
   onWordClick: (word: string, e: React.MouseEvent) => void;
-  onWordRightClick: (word: string, listId: string, e: React.MouseEvent) => void;
+  onWordRightClick: (word: string, originalWord: string, listId: string, e: React.MouseEvent) => void;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ function GridView({
   variantMode: VariantMode;
   selectedWords: Set<string>;
   onWordClick: (word: string, e: React.MouseEvent) => void;
-  onWordRightClick: (word: string, e: React.MouseEvent) => void;
+  onWordRightClick: (word: string, originalWord: string, e: React.MouseEvent) => void;
 }) {
   return (
     <>
@@ -80,7 +80,7 @@ function GridView({
               <div
                 key={r.normalized}
                 onClick={(e) => onWordClick(r.normalized, e)}
-                onContextMenu={(e) => onWordRightClick(r.normalized, e)}
+                onContextMenu={(e) => onWordRightClick(r.normalized, r.variants[0] ?? r.normalized, e)}
                 className={`flex items-baseline gap-1 border rounded px-2.5 py-0.5 cursor-pointer select-none transition-colors ${
                   selectedWords.has(r.normalized)
                     ? "bg-blue-50 dark:bg-blue-900 border-blue-300 dark:border-blue-700"
@@ -112,7 +112,7 @@ function ListView({
   variantMode: VariantMode;
   selectedWords: Set<string>;
   onWordClick: (word: string, e: React.MouseEvent) => void;
-  onWordRightClick: (word: string, e: React.MouseEvent) => void;
+  onWordRightClick: (word: string, originalWord: string, e: React.MouseEvent) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
   const toggle = (len: number) => setCollapsed((prev) => ({ ...prev, [len]: !prev[len] }));
@@ -148,7 +148,7 @@ function ListView({
                   <div
                     key={r.normalized}
                     onClick={(e) => onWordClick(r.normalized, e)}
-                    onContextMenu={(e) => onWordRightClick(r.normalized, e)}
+                    onContextMenu={(e) => onWordRightClick(r.normalized, r.variants[0] ?? r.normalized, e)}
                     className={`flex items-baseline justify-between px-3 py-0.5 cursor-pointer select-none transition-colors ${
                       selectedWords.has(r.normalized)
                         ? "bg-blue-50 dark:bg-blue-900"
@@ -237,7 +237,7 @@ export default function ResultsColumn({
               variantMode={variantMode}
               selectedWords={selectedWords}
               onWordClick={onWordClick}
-              onWordRightClick={(word, e) => onWordRightClick(word, listId, e)}
+              onWordRightClick={(word, originalWord, e) => onWordRightClick(word, originalWord, listId, e)}
             />
           </div>
         )}
@@ -251,7 +251,7 @@ export default function ResultsColumn({
               variantMode={variantMode}
               selectedWords={selectedWords}
               onWordClick={onWordClick}
-              onWordRightClick={(word, e) => onWordRightClick(word, listId, e)}
+              onWordRightClick={(word, originalWord, e) => onWordRightClick(word, originalWord, listId, e)}
             />
           </div>
         )}

@@ -114,9 +114,3 @@ cd src-tauri && cargo run --bin ccli -- ";acenrt"
 # Single quotes required for patterns with !
 cd src-tauri && ./target/debug/ccli 'c* & !cat*'
 ```
-
----
-
-## Deferred (carry into next conversation)
-- ccli --normalize help text: add "e.g. --normalize false" to description
-- App.tsx internal section comment headers (// ── Search state ── etc.)

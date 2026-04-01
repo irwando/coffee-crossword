@@ -217,25 +217,26 @@ function ContextMenuPopup({ x, y, onCopy }: { x: number; y: number; onCopy: () =
 // ── Main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
+  // ── Search state ──────────────────────────────────────────────────────
   const [pattern, setPattern] = useState("");
   const [explanation, setExplanation] = useState("");
-
-  // Multi-list results: keyed by listId, in active_ids order
   const [listResults, setListResults] = useState<ListResults[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [buildInProgress, setBuildInProgress] = useState(false);
   const [listsLoading, setListsLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState("Enter a pattern and press Search");
 
-  // Registry (lightweight copy for UI decisions)
+  // ── Registry ──────────────────────────────────────────────────────────
   const [registry, setRegistry] = useState<Registry>({ available: [], active_ids: [], dedup_enabled: true });
 
+  // ── UI state ──────────────────────────────────────────────────────────
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // ── Settings ──────────────────────────────────────────────────────────
   const [normalize, setNormalize] = useState(DEFAULTS.normalize);
   const [variantMode, setVariantMode] = useState<VariantMode>(DEFAULTS.variantMode);
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULTS.viewMode);
@@ -246,6 +247,7 @@ export default function App() {
   const [showOptions, setShowOptions] = useState(DEFAULTS.showOptions);
   const [appearance, setAppearance] = useState<AppearanceMode>(DEFAULTS.appearance);
 
+  // ── Refs ──────────────────────────────────────────────────────────────
   const storeRef = useRef<Store | null>(null);
   const explainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settingsLoaded = useRef(false);

@@ -31,7 +31,7 @@ struct Args {
     #[arg(long, action = clap::ArgAction::Append)]
     dict: Vec<PathBuf>,
 
-    /// Strip punctuation before matching (default: true). Use --normalize false to disable.
+    /// Strip punctuation before matching (default: true, e.g. --normalize false to disable).
     #[arg(long, default_value_t = true)]
     normalize: bool,
 

@@ -51,26 +51,25 @@ search unavailable" message in this state.
 
 ---
 
-## Startup delay fix — planned but not yet implemented
+## Startup delay fix — implemented
 
-**Root cause:** `open_ready_handles()` is called synchronously inside Tauri's `setup()` closure in `lib.rs`. The window does not appear until `setup()` returns. For large `.tsc` files (e.g. 428 MB wikipedia list), `Mmap::map()` on macOS takes several seconds even though mmap is supposed to be lazy — APFS does non-trivial work at mapping time for large files.
+**Root cause:** On macOS/APFS, `Mmap::map()` on large `.tsc` files (e.g. 428 MB wikipedia list) takes several seconds even though mmap is supposed to be lazy. Opening handles synchronously inside Tauri's `setup()` blocked the window from appearing.
 
-**Startup sequence (for reference):**
-1. Rust `setup()` runs synchronously — window blocked until it returns
+**Startup sequence:**
+1. Rust `setup()` runs synchronously — window appears immediately after it returns
    - `find_dict_dir()` — scans filesystem
    - `build_registry()` / `scan_dictionaries()` — reads 12 bytes per .tsc to check validity
-   - **`open_ready_handles()`** ← the bottleneck; calls `Mmap::map()` per Ready list
-   - `app.manage()`, native menu construction
+   - `app.manage()` with empty `cache_handles`, `handles_loaded = false`
+   - native menu construction
+   - background task spawned (`tauri::async_runtime::spawn`)
 2. Window appears; frontend mounts
-3. `load(STORE_FILE)` + 13 `store.get()` calls — async IPC
+3. `load(STORE_FILE)` + store reads — async IPC
 4. `get_registry` → `set_active_lists` → `rename_list` → `set_dedup_enabled` → `get_registry` — async IPC chain
+5. Background task completes: mmaps opened, `handles_loaded = true`, `registry:ready` emitted
 
-**Planned fix:**
-- In `setup()`, start with an empty `cache_handles` (skip `open_ready_handles()`)
-- After `app.manage()`, spawn a background task (`tauri::async_runtime::spawn`) that:
-  1. Opens all Ready cache handles
-  2. Inserts them into `AppState.cache_handles`
-  3. Emits a `registry:ready` event so the frontend knows search is available
-- Frontend shows a subtle "Loading word lists…" indicator until `registry:ready` fires
-
-**Files to change:** `src-tauri/src/lib.rs` (setup function), `src/App.tsx` (listen for `registry:ready`)
+**Implementation:**
+- `AppState.handles_loaded: AtomicBool` — false until background task finishes
+- `search` command returns an error immediately if `handles_loaded` is false
+- `handles_ready` Tauri command lets the frontend poll as a fallback
+- Frontend `listsLoading` state starts `true`; set `false` on `registry:ready` event or `handles_ready()` poll
+- Search button disabled and "Loading word lists…" shown while `listsLoading`

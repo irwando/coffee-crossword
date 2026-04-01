@@ -5,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import ResultsColumn from "./ResultsColumn";
 import WordListDrawer from "./WordListDrawer";
+import DictionaryPanel from "./DictionaryPanel";
+import ExternalLookupPanel from "./ExternalLookupPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,9 @@ interface HistoryEntry {
 interface ContextMenu {
   x: number;
   y: number;
+  word: string;
+  externalLookupUrl: string | null;
+  externalLookupListName: string | null;
 }
 
 type VariantMode = "show" | "hide";
@@ -45,6 +50,7 @@ interface ListEntry {
   display_name: string;
   word_count: number;
   cache_state: { type: string };
+  external_lookup: string | null;
 }
 interface Registry {
   available: ListEntry[];
@@ -190,7 +196,15 @@ function ReferenceCompact({ onPatternClick, singleColumn = false }: { onPatternC
 
 // ── Context menu ──────────────────────────────────────────────────────────────
 
-function ContextMenuPopup({ x, y, onCopy }: { x: number; y: number; onCopy: () => void }) {
+function ContextMenuPopup({
+  x, y, onCopy, onLookup, onExternalLookup, hasExternalLookup,
+}: {
+  x: number; y: number;
+  onCopy: () => void;
+  onLookup: () => void;
+  onExternalLookup: () => void;
+  hasExternalLookup: boolean;
+}) {
   const CMItem = ({ label, onClick, disabled = false }: { label: string; onClick?: () => void; disabled?: boolean }) => (
     <button
       onClick={disabled ? undefined : onClick}
@@ -209,8 +223,8 @@ function ContextMenuPopup({ x, y, onCopy }: { x: number; y: number; onCopy: () =
     >
       <CMItem label="Copy" onClick={onCopy} />
       <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
-      <CMItem label="Look up definition" disabled />
-      <CMItem label="Open in external dictionary" disabled />
+      <CMItem label="Look up definition" onClick={onLookup} />
+      <CMItem label="External lookup" onClick={onExternalLookup} disabled={!hasExternalLookup} />
       <div className="border-t border-gray-100 dark:border-gray-700 my-0.5" />
       <CMItem label="Copy to word list" disabled />
     </div>
@@ -279,6 +293,8 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [selectedWords, setSelectedWords] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [lookupWord, setLookupWord] = useState<string | null>(null);
+  const [externalLookup, setExternalLookup] = useState<{ word: string; url: string; listName: string } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // paneSizes: flex-grow per pane; initialized/reset when active list count changes
   const [paneSizes, setPaneSizes] = useState<number[]>([]);
@@ -680,11 +696,34 @@ export default function App() {
     }
   }, [allWords, selectedWords]);
 
-  const handleWordRightClick = useCallback((word: string, e: React.MouseEvent) => {
+  const handleWordRightClick = useCallback((word: string, listId: string, e: React.MouseEvent) => {
     e.preventDefault();
     setSelectedWords((prev) => { if (!prev.has(word)) return new Set([word]); return prev; });
-    setContextMenu({ x: e.clientX, y: e.clientY });
-  }, []);
+    const entry = registry.available.find((en) => en.id === listId);
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      word,
+      externalLookupUrl: entry?.external_lookup ?? null,
+      externalLookupListName: entry?.display_name ?? null,
+    });
+  }, [registry]);
+
+  const handleLookup = useCallback(() => {
+    if (!contextMenu) return;
+    setLookupWord(contextMenu.word);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  const handleExternalLookup = useCallback(() => {
+    if (!contextMenu?.externalLookupUrl) return;
+    setExternalLookup({
+      word: contextMenu.word,
+      url: contextMenu.externalLookupUrl,
+      listName: contextMenu.externalLookupListName ?? "",
+    });
+    setContextMenu(null);
+  }, [contextMenu]);
 
   const handleCopy = useCallback(async () => {
     const text = [...selectedWords].join("\n");
@@ -1048,7 +1087,29 @@ export default function App() {
 
       {/* ── CONTEXT MENU ── */}
       {contextMenu && (
-        <ContextMenuPopup x={contextMenu.x} y={contextMenu.y} onCopy={handleCopy} />
+        <ContextMenuPopup
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onCopy={handleCopy}
+          onLookup={handleLookup}
+          onExternalLookup={handleExternalLookup}
+          hasExternalLookup={contextMenu.externalLookupUrl !== null}
+        />
+      )}
+
+      {/* ── DICTIONARY PANEL ── */}
+      {lookupWord && (
+        <DictionaryPanel word={lookupWord} onClose={() => setLookupWord(null)} />
+      )}
+
+      {/* ── EXTERNAL LOOKUP PANEL ── */}
+      {externalLookup && (
+        <ExternalLookupPanel
+          word={externalLookup.word}
+          urlTemplate={externalLookup.url}
+          listName={externalLookup.listName}
+          onClose={() => setExternalLookup(null)}
+        />
       )}
 
       {/* ── WORD LIST DRAWER ── */}

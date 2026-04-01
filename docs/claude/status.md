@@ -34,6 +34,8 @@
 - [x] Cancel button — Search → Cancel during active search; cancels via AtomicBool flag
 - [x] Configurable search timeout (default 30s, persisted)
 - [x] Normalize=OFF anagram fix — punctuation stripped before letter-set matching
+- [x] Dictionary lookup (FreeDictionary API) via right-click → Look up definition
+- [x] External lookup — per-list URL template with `{term}` token; embedded iframe panel with Open in Browser
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window

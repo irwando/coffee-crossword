@@ -24,7 +24,7 @@ interface ResultsColumnProps {
   viewMode: ViewMode;
   selectedWords: Set<string>;
   onWordClick: (word: string, e: React.MouseEvent) => void;
-  onWordRightClick: (word: string, e: React.MouseEvent) => void;
+  onWordRightClick: (word: string, listId: string, e: React.MouseEvent) => void;
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -176,7 +176,7 @@ function ListView({
 // ── ResultsColumn ─────────────────────────────────────────────────────────────
 
 export default function ResultsColumn({
-  listId: _listId,
+  listId,
   listName,
   entryCount,
   results,
@@ -237,7 +237,7 @@ export default function ResultsColumn({
               variantMode={variantMode}
               selectedWords={selectedWords}
               onWordClick={onWordClick}
-              onWordRightClick={onWordRightClick}
+              onWordRightClick={(word, e) => onWordRightClick(word, listId, e)}
             />
           </div>
         )}
@@ -251,7 +251,7 @@ export default function ResultsColumn({
               variantMode={variantMode}
               selectedWords={selectedWords}
               onWordClick={onWordClick}
-              onWordRightClick={onWordRightClick}
+              onWordRightClick={(word, e) => onWordRightClick(word, listId, e)}
             />
           </div>
         )}

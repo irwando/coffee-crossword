@@ -56,6 +56,9 @@ pub struct ListEntry {
     pub source_desc: String,
     /// Current cache state.
     pub cache_state: CacheState,
+    /// Validated external lookup URL template from file header.
+    /// Contains exactly one `{term}` token. None if absent or invalid.
+    pub external_lookup: Option<String>,
 }
 
 /// The full registry: all discovered lists + user's active selection.
@@ -107,6 +110,9 @@ pub fn scan_dictionaries(dir: &Path) -> Vec<ListEntry> {
 
         let tsc_path = txt_path.with_extension("tsc");
 
+        // Always read the .txt header for external_lookup (not stored in .tsc).
+        let (txt_name, txt_updated, txt_desc, external_lookup) = read_txt_header(&txt_path);
+
         // Try to read display name / metadata from the cache if it exists,
         // otherwise fall back to the filename stem.
         let (display_name, source_updated, source_desc, word_count) =
@@ -123,10 +129,8 @@ pub fn scan_dictionaries(dir: &Path) -> Vec<ListEntry> {
                     Err(_) => (id.clone(), String::new(), String::new(), 0),
                 }
             } else {
-                // Parse header from the .txt to get display name without building.
-                let (name, updated, desc) = read_txt_header(&txt_path);
-                let name = name.unwrap_or_else(|| id.clone());
-                (name, updated.unwrap_or_default(), desc.unwrap_or_default(), 0)
+                let name = txt_name.unwrap_or_else(|| id.clone());
+                (name, txt_updated.unwrap_or_default(), txt_desc.unwrap_or_default(), 0)
             };
 
         let cache_state = match cache_validity(&txt_path, &tsc_path) {
@@ -144,28 +148,46 @@ pub fn scan_dictionaries(dir: &Path) -> Vec<ListEntry> {
             source_updated,
             source_desc,
             cache_state,
+            external_lookup,
         });
     }
 
     entries
 }
 
+/// Validate an external lookup URL template.
+/// Returns `Some(url)` if the URL starts with http(s):// and contains
+/// exactly one `{term}` token, `None` otherwise.
+fn validate_external_lookup(url: &str) -> Option<String> {
+    let url = url.trim();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return None;
+    }
+    let count = url.matches("{term}").count();
+    if count != 1 {
+        return None;
+    }
+    Some(url.to_string())
+}
+
 /// Read only the header fields from a .txt file without processing word lines.
-fn read_txt_header(path: &Path) -> (Option<String>, Option<String>, Option<String>) {
+/// Returns (name, updated, description, external_lookup).
+fn read_txt_header(path: &Path) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
-        Err(_) => return (None, None, None),
+        Err(_) => return (None, None, None, None),
     };
 
     let lines: Vec<&str> = content.lines().collect();
 
     if lines.is_empty() || lines[0].trim() != "---" {
-        return (None, None, None);
+        return (None, None, None, None);
     }
 
     let mut name = None;
     let mut updated = None;
     let mut description_lines: Vec<String> = Vec::new();
+    let mut external_lookup_raw: Option<String> = None;
     let mut in_description = false;
 
     for line in &lines[1..] {
@@ -183,6 +205,8 @@ fn read_txt_header(path: &Path) -> (Option<String>, Option<String>, Option<Strin
             name = Some(val.trim().to_string());
         } else if let Some(val) = trimmed.strip_prefix("updated:") {
             updated = Some(val.trim().to_string());
+        } else if let Some(val) = trimmed.strip_prefix("external_lookup:") {
+            external_lookup_raw = Some(val.trim().to_string());
         } else if let Some(val) = trimmed.strip_prefix("description:") {
             let first = val.trim().to_string();
             if !first.is_empty() {
@@ -190,6 +214,7 @@ fn read_txt_header(path: &Path) -> (Option<String>, Option<String>, Option<Strin
             }
             in_description = true;
         }
+        // Unknown keys are silently ignored.
     }
 
     let description = if description_lines.is_empty() {
@@ -198,7 +223,9 @@ fn read_txt_header(path: &Path) -> (Option<String>, Option<String>, Option<Strin
         Some(description_lines.join(" "))
     };
 
-    (name, updated, description)
+    let external_lookup = external_lookup_raw.and_then(|u| validate_external_lookup(&u));
+
+    (name, updated, description, external_lookup)
 }
 
 // ── Load / save ───────────────────────────────────────────────────────────────
@@ -446,5 +473,64 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let registry = build_registry(dir.path(), vec![], HashMap::new(), true);
         assert!(registry.dedup_enabled);
+    }
+
+    #[test]
+    fn test_external_lookup_valid() {
+        let dir = TempDir::new().unwrap();
+        make_txt(
+            &dir,
+            "words.txt",
+            "---\nname: Test\nexternal_lookup: https://example.com/define/{term}\n---\ncat\n",
+        );
+        let entries = scan_dictionaries(dir.path());
+        assert_eq!(
+            entries[0].external_lookup.as_deref(),
+            Some("https://example.com/define/{term}")
+        );
+    }
+
+    #[test]
+    fn test_external_lookup_no_token_rejected() {
+        let dir = TempDir::new().unwrap();
+        make_txt(
+            &dir,
+            "words.txt",
+            "---\nexternal_lookup: https://example.com/define/\n---\ncat\n",
+        );
+        let entries = scan_dictionaries(dir.path());
+        assert!(entries[0].external_lookup.is_none());
+    }
+
+    #[test]
+    fn test_external_lookup_two_tokens_rejected() {
+        let dir = TempDir::new().unwrap();
+        make_txt(
+            &dir,
+            "words.txt",
+            "---\nexternal_lookup: https://example.com/{term}/{term}\n---\ncat\n",
+        );
+        let entries = scan_dictionaries(dir.path());
+        assert!(entries[0].external_lookup.is_none());
+    }
+
+    #[test]
+    fn test_external_lookup_not_http_rejected() {
+        let dir = TempDir::new().unwrap();
+        make_txt(
+            &dir,
+            "words.txt",
+            "---\nexternal_lookup: ftp://example.com/{term}\n---\ncat\n",
+        );
+        let entries = scan_dictionaries(dir.path());
+        assert!(entries[0].external_lookup.is_none());
+    }
+
+    #[test]
+    fn test_external_lookup_absent_is_none() {
+        let dir = TempDir::new().unwrap();
+        make_txt(&dir, "words.txt", "---\nname: No Lookup\n---\ncat\n");
+        let entries = scan_dictionaries(dir.path());
+        assert!(entries[0].external_lookup.is_none());
     }
 }

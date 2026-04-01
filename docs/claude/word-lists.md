@@ -28,14 +28,35 @@ United States
 ...
 ```
 
+Supported header keys:
+- `name` — overrides the display name; otherwise filename stem is used
+- `updated` — informational only, shown in the List Manager drawer
+- `description` — shown as tooltip/detail in the drawer; multi-line via leading-space continuation
+- `external_lookup` — URL template for right-click → External lookup (see below)
+
 Rules:
 - Header is **optional** — files without `---` work as-is (backward compatible)
-- Only `name`, `updated`, `description` keys recognized; others ignored
-- `name` overrides the display name; otherwise filename stem is used
-- `updated` is informational only, shown in the List Manager drawer
-- `description` shown as tooltip/detail in the drawer
-- Multi-line `description` uses leading-space continuation lines
+- Unknown keys are silently ignored
 - Blank lines and `#` comment lines are skipped throughout the file body
+
+### `external_lookup` field
+
+Enables per-list external lookup from the right-click context menu.
+
+```
+external_lookup: https://www.collinsdictionary.com/dictionary/english/{term}
+```
+
+Validation (enforced at registry scan time):
+- Must start with `http://` or `https://`
+- Must contain **exactly one** `{term}` token (zero or two+ are rejected)
+- Invalid values are silently ignored (field becomes `null`)
+
+When a user right-clicks a word from a list with a valid `external_lookup` URL,
+the **External lookup** context menu item becomes active. Clicking it opens an
+embedded panel (iframe) with `{term}` replaced by the URL-encoded word. An
+**Open in Browser ↗** button opens the URL in the system browser. If the site
+blocks iframe embedding, a fallback message with the browser button is shown.
 
 ---
 

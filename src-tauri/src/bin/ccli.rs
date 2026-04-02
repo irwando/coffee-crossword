@@ -186,6 +186,7 @@ fn search_one(dict: &DictInfo, pattern: &str, args: &Args) -> ListSearchResult {
                     list_id: dict.id.clone(),
                     list_name: handle.display_name.clone(),
                     results,
+                    truncated: false,
                     error: None,
                 };
             }
@@ -203,6 +204,7 @@ fn search_one(dict: &DictInfo, pattern: &str, args: &Args) -> ListSearchResult {
                 list_id: dict.id.clone(),
                 list_name: dict.id.clone(),
                 results,
+                truncated: false,
                 error: None,
             }
         }
@@ -210,6 +212,7 @@ fn search_one(dict: &DictInfo, pattern: &str, args: &Args) -> ListSearchResult {
             list_id: dict.id.clone(),
             list_name: dict.id.clone(),
             results: vec![],
+            truncated: false,
             error: Some(e),
         }
     }

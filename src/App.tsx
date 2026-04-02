@@ -43,6 +43,8 @@ interface ListResults {
   entryCount: number;
   results: MatchGroup[] | null; // null = loading
   isLoading: boolean;
+  isStreaming: boolean; // true while partial results are arriving (skeleton gone but search still running)
+  truncated: boolean;  // true when results were capped at maxResults
 }
 
 // Registry snapshot (minimal — just what App.tsx needs)
@@ -70,6 +72,7 @@ const DEFAULTS = {
   viewMode: "list" as ViewMode,
   minLen: 1,
   maxLen: 50,
+  maxResults: 100_000,
   referenceMode: "full" as ReferenceMode,
   showDescription: true,
   showOptions: true,
@@ -306,6 +309,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULTS.viewMode);
   const [minLen, setMinLen] = useState(DEFAULTS.minLen);
   const [maxLen, setMaxLen] = useState(DEFAULTS.maxLen);
+  const [maxResults, setMaxResults] = useState(DEFAULTS.maxResults);
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>(DEFAULTS.referenceMode);
   const [showDescription, setShowDescription] = useState(DEFAULTS.showDescription);
   const [showOptions, setShowOptions] = useState(DEFAULTS.showOptions);
@@ -355,8 +359,9 @@ export default function App() {
         store.get<LayoutMode>("layoutMode"),
         store.get<number>("searchTimeout"),
         store.get<number>("refColWidth"),
+        store.get<number>("maxResults"),
       ]).then(([n, vm, view, min, max, ref_, desc, opts, app_, hist,
-                activeIds, displayNames, dedup, layout, timeout_, refW]) => {
+                activeIds, displayNames, dedup, layout, timeout_, refW, maxRes]) => {
         if (n !== null && n !== undefined) setNormalize(n);
         if (vm) setVariantMode(vm);
         if (view) setViewMode(view);
@@ -370,6 +375,7 @@ export default function App() {
         if (layout) setLayoutMode(layout);
         if (timeout_ !== null && timeout_ !== undefined) setSearchTimeout(timeout_);
         if (refW !== null && refW !== undefined) setRefColWidth(refW);
+        if (maxRes !== null && maxRes !== undefined) setMaxResults(maxRes);
         settingsLoaded.current = true;
 
         // Restore active list IDs and display names to backend, then load registry.
@@ -431,7 +437,8 @@ export default function App() {
     s.set("layoutMode", layoutMode);
     s.set("searchTimeout", searchTimeout);
     s.set("refColWidth", refColWidth);
-  }, [normalize, variantMode, viewMode, minLen, maxLen, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
+    s.set("maxResults", maxResults);
+  }, [normalize, variantMode, viewMode, minLen, maxLen, maxResults, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
 
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
@@ -473,34 +480,56 @@ export default function App() {
             entryCount: entry?.word_count ?? 0,
             results: null,
             isLoading: true,
+            isStreaming: false,
+            truncated: false,
           };
         })
       );
     }).then((u) => unlisteners.push(u));
 
-    listen<{ list_id: string; list_name: string; results: MatchGroup[]; error: string | null }>(
+    // Partial results from each length bucket — fires before search:list-result.
+    listen<{ list_id: string; groups: MatchGroup[] }>(
+      "search:list-result-partial",
+      (e) => {
+        const { list_id, groups } = e.payload;
+        setListResults((prev) =>
+          prev.map((lr) => {
+            if (lr.listId !== list_id) return lr;
+            if (lr.results === null) {
+              // First batch: replace skeleton with real results
+              return { ...lr, results: groups, isLoading: false, isStreaming: true, truncated: false };
+            }
+            // Subsequent batch: append (buckets arrive in ascending length order)
+            return { ...lr, results: [...lr.results, ...groups], isStreaming: true };
+          })
+        );
+      }
+    ).then((u) => unlisteners.push(u));
+
+    // Full result for this list — replaces all partials with the canonical set.
+    listen<{ list_id: string; list_name: string; results: MatchGroup[]; truncated: boolean; error: string | null }>(
       "search:list-result",
       (e) => {
-        const { list_id, list_name, results } = e.payload;
+        const { list_id, list_name, results, truncated } = e.payload;
         setListResults((prev) =>
           prev.map((lr) =>
             lr.listId === list_id
-              ? { ...lr, listName: list_name, results, isLoading: false }
+              ? { ...lr, listName: list_name, results, isLoading: false, isStreaming: false, truncated }
               : lr
           )
         );
       }
     ).then((u) => unlisteners.push(u));
 
-    // After dedup: re-apply final results if dedup removed words.
-    listen<{ list_id: string; list_name: string; results: MatchGroup[]; error: string | null }>(
+    // After dedup: re-apply final results; preserve truncated flag from search:list-result.
+    listen<{ list_id: string; list_name: string; results: MatchGroup[]; truncated: boolean; error: string | null }>(
       "search:list-result-final",
       (e) => {
-        const { list_id, list_name, results } = e.payload;
+        const { list_id, list_name, results, truncated } = e.payload;
         setListResults((prev) =>
           prev.map((lr) =>
             lr.listId === list_id
-              ? { ...lr, listName: list_name, results, isLoading: false }
+              ? { ...lr, listName: list_name, results, isLoading: false, isStreaming: false, truncated }
               : lr
           )
         );
@@ -628,7 +657,7 @@ export default function App() {
     }
 
     try {
-      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize, timeoutSecs: searchTimeout });
+      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize, timeoutSecs: searchTimeout, maxResults });
       // Results arrive via events (search:start, search:list-result, search:complete).
       // Update history after issuing the search.
       setHistory((prev) => {
@@ -640,7 +669,7 @@ export default function App() {
       setStatusMsg(`Error: ${err}`);
       setIsSearching(false);
     }
-  }, [pattern, minLen, maxLen, normalize, searchTimeout, listsLoading, buildInProgress]);
+  }, [pattern, minLen, maxLen, maxResults, normalize, searchTimeout, listsLoading, buildInProgress]);
 
   const doCancel = useCallback(async () => {
     await invoke("cancel_search");
@@ -951,7 +980,13 @@ export default function App() {
             className="w-12 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
           />
           <span>letters</span>
-          <span className="ml-auto">Timeout:</span>
+          <span className="ml-auto">Max results:</span>
+          <input
+            type="number" value={maxResults} min={100} max={1_000_000} step={1000}
+            onChange={(e) => setMaxResults(Math.min(1_000_000, Math.max(100, Number(e.target.value))))}
+            className="w-20 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
+          />
+          <span>Timeout:</span>
           <input
             type="number" value={searchTimeout} min={5} max={300}
             onChange={(e) => setSearchTimeout(Math.min(300, Math.max(5, Number(e.target.value))))}
@@ -992,6 +1027,8 @@ export default function App() {
                 entryCount={listResults[0].entryCount}
                 results={listResults[0].results}
                 isLoading={listResults[0].isLoading}
+                isStreaming={listResults[0].isStreaming}
+                truncated={listResults[0].truncated}
                 normalize={normalize}
                 variantMode={variantMode}
                 viewMode={viewMode}
@@ -1055,6 +1092,8 @@ export default function App() {
                         entryCount={lr.entryCount}
                         results={lr.results}
                         isLoading={lr.isLoading}
+                        isStreaming={lr.isStreaming}
+                        truncated={lr.truncated}
                         normalize={normalize}
                         variantMode={variantMode}
                         viewMode={viewMode}

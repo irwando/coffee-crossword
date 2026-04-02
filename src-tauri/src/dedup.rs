@@ -15,6 +15,7 @@ pub struct ListSearchResult {
     pub list_id: String,
     pub list_name: String,
     pub results: Vec<MatchGroup>,
+    pub truncated: bool,
     pub error: Option<String>,
 }
 
@@ -53,6 +54,7 @@ mod tests {
             list_id: list_id.to_string(),
             list_name: list_id.to_string(),
             results: words.iter().map(|w| make_group(w)).collect(),
+            truncated: false,
             error: None,
         }
     }
@@ -62,6 +64,7 @@ mod tests {
             list_id: list_id.to_string(),
             list_name: list_id.to_string(),
             results: vec![make_group("cat")],
+            truncated: false,
             error: Some("build failed".to_string()),
         }
     }

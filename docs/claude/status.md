@@ -36,6 +36,9 @@
 - [x] Normalize=OFF anagram fix — punctuation stripped before letter-set matching
 - [x] Dictionary lookup (FreeDictionary API) via right-click → Look up definition
 - [x] External lookup — per-list URL template with `{term}` token; embedded iframe panel with Open in Browser
+- [x] Incremental streaming results — `search:list-result-partial` events per length bucket; skeleton replaced on first hit
+- [x] Result cap (`maxResults`, default 100,000) — configurable in Options; prevents IPC backpressure deadlock on negated/broad patterns; shows amber truncation notice when hit
+- [x] Batch size cap (`MAX_BATCH_SIZE = 500`) — IPC events never exceed 500 entries; prevents multi-MB single events
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window
@@ -112,6 +115,8 @@
   - [x] Draggable divider between stacked panes
   - [x] Column layout with draggable dividers and resizable reference column
   - [x] Cancel button + search timeout + normalize=OFF anagram fix
+  - [x] Incremental per-bucket result streaming (`search:list-result-partial`)
+  - [x] Result cap (`maxResults`) + batch size cap (`MAX_BATCH_SIZE`) — fixes deadlock on negated/broad patterns against large lists
 - [ ] Phase 4: Definition window, full text search, external lookup
 - [ ] Phase 5: Export, print, sorting, filtering
 

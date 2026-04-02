@@ -19,6 +19,8 @@ interface ResultsColumnProps {
   entryCount: number;
   results: MatchGroup[] | null; // null = still loading
   isLoading: boolean;
+  isStreaming: boolean; // partial results are arriving, search still running
+  truncated: boolean;  // results were capped at the maxResults limit
   normalize: boolean;
   variantMode: VariantMode;
   viewMode: ViewMode;
@@ -181,6 +183,8 @@ export default function ResultsColumn({
   entryCount,
   results,
   isLoading,
+  isStreaming,
+  truncated,
   normalize,
   variantMode,
   viewMode,
@@ -215,6 +219,7 @@ export default function ResultsColumn({
           ) : results !== null ? (
             <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
               {matchCount} {matchCount === 1 ? "match" : "matches"}
+              {isStreaming && <span className="animate-pulse ml-1">…</span>}
             </span>
           ) : null}
         </div>
@@ -226,6 +231,12 @@ export default function ResultsColumn({
 
         {!isLoading && results !== null && results.length === 0 && (
           <p className="text-sm text-gray-400 dark:text-gray-500 px-3 py-3">No matches found</p>
+        )}
+
+        {!isLoading && truncated && (
+          <div className="mx-3 mt-2 mb-1 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded text-xs text-amber-700 dark:text-amber-400">
+            Showing first {matchCount.toLocaleString()} results — refine your pattern or increase the limit in Options.
+          </div>
         )}
 
         {!isLoading && results !== null && results.length > 0 && viewMode === "grid" && (

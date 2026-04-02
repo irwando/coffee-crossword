@@ -27,7 +27,7 @@ pub struct MatchGroup {
 
 | Command | Purpose |
 |---|---|
-| `search` | Run pattern against all active lists; streams events |
+| `search` | Run pattern against all active lists; streams events. Params: `pattern`, `minLen`, `maxLen`, `normalize`, `timeoutSecs`, `maxResults` (0 = unlimited) |
 | `describe_pattern` | Return human-readable pattern description |
 | `validate_pattern` | Validate pattern syntax |
 | `get_registry` | Return current registry state to UI |
@@ -43,8 +43,9 @@ pub struct MatchGroup {
 | Event | Payload | When |
 |---|---|---|
 | `search:start` | `{ active_ids: string[] }` | Search begins |
-| `search:list-result` | `ListSearchResult` | Each list completes (streamed as tasks finish) |
-| `search:list-result-final` | `ListSearchResult` | After dedup — final authoritative result per list |
+| `search:list-result-partial` | `{ list_id, groups: MatchGroup[] }` | Each length bucket completes during search (capped at 500 entries per event); replaces skeleton on first arrival, appended thereafter |
+| `search:list-result` | `{ list_id, list_name, results, truncated, error }` | Each list's full result (replaces partials; `truncated: true` if capped at `maxResults`) |
+| `search:list-result-final` | `{ list_id, list_name, results, truncated, error }` | After dedup — final authoritative result per list |
 | `search:dedup` | `{ list_id, removed_count }` | After dedup applied |
 | `search:complete` | — | All lists done |
 | `registry:changed` | `{ active_ids, display_names, dedup_enabled }` | Registry mutated |

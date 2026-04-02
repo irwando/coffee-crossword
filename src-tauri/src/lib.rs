@@ -23,7 +23,7 @@ use tauri::{
 
 use crate::cache::{build_cache, open_cache, CacheHandle};
 use crate::dedup::{deduplicate, ListSearchResult};
-use crate::engine::{search_cache_cancellable, MatchGroup};
+use crate::engine::{search_cache_cancellable_streaming, MatchGroup};
 use crate::registry::{build_registry, update_entry_state, CacheState, Registry};
 
 // ── App state ────────────────────────────────────────────────────────────────
@@ -57,7 +57,14 @@ pub struct SearchListResultPayload {
     pub list_id: String,
     pub list_name: String,
     pub results: Vec<MatchGroup>,
+    pub truncated: bool,
     pub error: Option<String>,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct SearchListResultPartialPayload {
+    pub list_id: String,
+    pub groups: Vec<MatchGroup>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -318,6 +325,7 @@ async fn search(
     max_len: usize,
     normalize: bool,
     timeout_secs: u64,
+    max_results: usize,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -381,11 +389,36 @@ async fn search(
         let lname = list_name.clone();
 
         let task = tokio::task::spawn_blocking(move || {
-            let results = search_cache_cancellable(&cache_handle, &pattern, min_len, max_len, normalize, &cancel);
+            // Clone app handle for use inside the batch callback.
+            let app_for_batch = app_clone.clone();
+            let lid_for_batch = lid.clone();
+
+            let (results, truncated) = search_cache_cancellable_streaming(
+                &cache_handle,
+                &pattern,
+                min_len,
+                max_len,
+                normalize,
+                &cancel,
+                max_results,
+                move |batch| {
+                    // Called at every MAX_BATCH_SIZE matches and at each bucket boundary.
+                    // AppHandle::emit is thread-safe so this is safe from the blocking thread.
+                    let _ = app_for_batch.emit(
+                        "search:list-result-partial",
+                        SearchListResultPartialPayload {
+                            list_id: lid_for_batch.clone(),
+                            groups: batch,
+                        },
+                    );
+                },
+            );
+
             let payload = SearchListResultPayload {
                 list_id: lid.clone(),
                 list_name: lname,
                 results,
+                truncated,
                 error: None,
             };
             let _ = app_clone.emit("search:list-result", payload.clone());
@@ -393,6 +426,7 @@ async fn search(
                 list_id: lid,
                 list_name: payload.list_name,
                 results: payload.results,
+                truncated: payload.truncated,
                 error: None,
             }
         });
@@ -414,6 +448,7 @@ async fn search(
                     list_id,
                     list_name,
                     results: vec![],
+                    truncated: false,
                     error: Some("Cancelled".to_string()),
                 });
                 continue;
@@ -424,6 +459,7 @@ async fn search(
                     list_id,
                     list_name,
                     results: vec![],
+                    truncated: false,
                     error: Some(format!("Search task failed: {}", e)),
                 }),
                 Err(_elapsed) => {
@@ -434,6 +470,7 @@ async fn search(
                         list_id,
                         list_name,
                         results: vec![],
+                        truncated: false,
                         error: Some("Search timed out".to_string()),
                     });
                 }
@@ -472,6 +509,9 @@ async fn search(
                     list_id: result.list_id.clone(),
                     list_name: result.list_name.clone(),
                     results: result.results.clone(),
+                    // Truncation state was set at search time; dedup only removes, never adds.
+                    // The frontend preserves the truncated flag from search:list-result.
+                    truncated: result.truncated,
                     error: result.error.clone(),
                 },
             );

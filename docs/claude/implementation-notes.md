@@ -58,7 +58,57 @@ returns empty results when set. `cancel_search` Tauri command sets the flag from
 the frontend Cancel button. A `tokio::time::timeout_at` deadline wraps each
 per-list task; on timeout the cancel flag is set and remaining tasks get error
 results without being awaited. The public `search_cache` API is unchanged;
-`search_cache_cancellable` (pub(crate)) is the cancellable variant.
+`search_cache_cancellable_streaming` (pub(crate)) is the Tauri variant.
+
+## Incremental streaming results
+
+The Tauri `search` command emits results incrementally via `search:list-result-partial`
+events as the search progresses, rather than waiting for each list to complete.
+
+**How it works (Rust side):**
+- `search_cache_cancellable_streaming` in `engine/mod.rs` accepts an `on_batch: impl Fn(Vec<MatchGroup>)` callback and `max_results: usize`.
+- `search_cache_streaming` in `engine/grouping.rs` processes one length bucket at a time. After each bucket, `on_batch` is called with that bucket's grouped matches.
+- Two flush boundaries: every `MAX_BATCH_SIZE = 500` matches (prevents multi-MB IPC events) and at each bucket boundary (natural length-group boundary).
+- The function returns `(Vec<MatchGroup>, bool)` — the complete result and a `truncated` flag.
+- `max_results = 0` means unlimited (used by CLI and non-streaming `search_cache`).
+
+**Event sequence per search:**
+```
+search:start
+  → (per list, in parallel):
+      search:list-result-partial  (first bucket → skeleton replaced)
+      search:list-result-partial  (subsequent buckets → appended)
+      ...
+      search:list-result          (full result; truncated=true if cap hit)
+  → (after all lists finish):
+      search:list-result-final    (post-dedup; preserves truncated flag)
+search:complete
+```
+
+**Frontend state (`ListResults`):**
+- `isLoading: true` → skeleton shown
+- `isStreaming: true` → partial results visible, `…` indicator in header
+- `isStreaming: false` → search complete for this list
+- `truncated: true` → amber banner: "Showing first N results — refine your pattern or increase the limit in Options."
+
+## Result cap and IPC backpressure fix
+
+**Problem:** Negated or broad patterns (e.g. `[^aeiou]...` against a 6M-entry list)
+can match millions of entries. Without a cap, this causes a deadlock:
+1. Large bucket emits a multi-MB IPC event → frontend blocked rendering
+2. IPC channel fills up (frontend can't consume messages)
+3. Rust blocking thread stuck inside `emit()` waiting for channel to drain
+4. Cancel flag never reached (thread is in IPC, not search loop)
+5. UI permanently frozen — no recovery without force-quitting
+
+**Fix:** `max_results` (default 100,000, configurable in Options) stops the
+search loop once the total match count reaches the cap. Combined with
+`MAX_BATCH_SIZE = 500`, each IPC event is at most ~500 entries regardless of
+pattern type, and the total result set is bounded. The `truncated` flag flows
+through the payload chain so the UI can surface a notice when the cap is hit.
+
+The CLI is unaffected: `search_cache` (non-streaming, uncapped) is its entry
+point. Only the Tauri `search` command uses the streaming + capped path.
 
 ## Normalize=OFF anagram matching
 Anagram matching is a letter-set operation — punctuation (apostrophes, hyphens)

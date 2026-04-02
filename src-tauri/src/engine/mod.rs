@@ -58,24 +58,34 @@ pub fn search_cache(
     grouping::search_cache(cache, &expr, min_len, max_len, normalize_mode)
 }
 
-/// Cancellable variant of search_cache for the Tauri search command.
-/// `cancel` is an AtomicBool that can be set to true from another thread
-/// to interrupt the search. Returns empty results when cancelled.
-pub(crate) fn search_cache_cancellable(
+/// Streaming + cancellable variant for the Tauri search command.
+/// Calls `on_batch` with slices of results as they are found so the UI can
+/// display partial results immediately. Batches are capped at MAX_BATCH_SIZE
+/// entries each to keep IPC events small.
+///
+/// `max_results`: stop after this many total matches (0 = unlimited).
+///
+/// Returns `(complete_groups, truncated)`.
+pub(crate) fn search_cache_cancellable_streaming<F>(
     cache: &crate::cache::CacheHandle,
     pattern: &str,
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
     cancel: &std::sync::atomic::AtomicBool,
-) -> Vec<MatchGroup> {
+    max_results: usize,
+    on_batch: F,
+) -> (Vec<MatchGroup>, bool)
+where
+    F: Fn(Vec<MatchGroup>),
+{
     let expr = match parser::parse_logical(pattern) {
         Some(e) => e,
-        None => return Vec::new(),
+        None => return (Vec::new(), false),
     };
-
-    grouping::search_cache_with_cancel(cache, &expr, min_len, max_len, normalize_mode, cancel)
+    grouping::search_cache_streaming(cache, &expr, min_len, max_len, normalize_mode, cancel, max_results, on_batch)
 }
+
 
 /// Validate a pattern string.
 /// Returns Ok(()) if valid, Err(reason) if not.

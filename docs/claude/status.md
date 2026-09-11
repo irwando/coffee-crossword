@@ -39,6 +39,9 @@
 - [x] Incremental streaming results — `search:list-result-partial` events per length bucket; skeleton replaced on first hit
 - [x] Result cap (`maxResults`, default 100,000) — configurable in Options; prevents IPC backpressure deadlock on negated/broad patterns; shows amber truncation notice when hit
 - [x] Batch size cap (`MAX_BATCH_SIZE = 500`) — IPC events never exceed 500 entries; prevents multi-MB single events
+- [x] Search-loop allocation avoidance — `Cow<str>`-based candidate matching (`grouping.rs`), fixed-array `MatchContext` (`matcher.rs`); see `implementation-notes.md`
+- [x] Virtualized results rendering (`@tanstack/react-virtual`) + throttled streaming accumulation — fixes large-list freeze at high `maxResults`; see `implementation-notes.md`
+- [x] Native menu checkmark sync (`sync_menu_state`) — menu checkmarks now match restored session state and actually flip on click for Description/Options
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window

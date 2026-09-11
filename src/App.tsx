@@ -388,6 +388,18 @@ export default function App() {
         if (maxRes !== null && maxRes !== undefined) setMaxResults(maxRes);
         settingsLoaded.current = true;
 
+        // The native menu is built with hardcoded default checkmarks before this
+        // settings load resolves, so it has no way to know a prior session's
+        // restored reference/layout/appearance/description/options state. Push
+        // the effective (restored-or-default) values to it once here.
+        invoke("sync_menu_state", {
+          reference: ref_ ?? DEFAULTS.referenceMode,
+          layout: layout ?? DEFAULTS.layoutMode,
+          appearance: app_ ?? DEFAULTS.appearance,
+          showDescription: desc ?? DEFAULTS.showDescription,
+          showOptions: opts ?? DEFAULTS.showOptions,
+        }).catch(console.error);
+
         // Restore active list IDs and display names to backend, then load registry.
         const ids = activeIds ?? [];
         const names = displayNames ?? {};

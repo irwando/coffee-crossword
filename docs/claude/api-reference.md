@@ -28,13 +28,17 @@ pub struct MatchGroup {
 | Command | Purpose |
 |---|---|
 | `search` | Run pattern against all active lists; streams events. Params: `pattern`, `minLen`, `maxLen`, `normalize`, `timeoutSecs`, `maxResults` (0 = unlimited) |
+| `cancel_search` | Set the shared cancel flag for the currently-running search |
 | `describe_pattern` | Return human-readable pattern description |
 | `validate_pattern` | Validate pattern syntax |
+| `sync_menu_state` | Set native menu checkmarks (reference/layout/appearance/description/options) from frontend state. Called once at startup after persisted settings load, since the menu is built with hardcoded defaults before that resolves |
 | `get_registry` | Return current registry state to UI |
 | `set_active_lists` | Replace active_ids list (persisted) |
 | `set_dedup_enabled` | Toggle dedup (persisted) |
 | `rename_list` | Override display name for a list (persisted) |
 | `build_list_cache` | Build/rebuild `.tsc` for one list; streams build events |
+| `rescan_registry` | Re-scan the dictionaries folder for new/changed `.txt` files |
+| `handles_ready` | Poll whether background mmap handle loading has finished (fallback for the `registry:ready` event) |
 
 ---
 

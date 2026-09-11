@@ -34,6 +34,24 @@ lifecycle and Tauri's async `listen()` API causes double-registration in dev mod
 Native menu built in `lib.rs`. Events emitted Rust→frontend via `Emitter::emit`.
 Frontend listens with `@tauri-apps/api/event` `listen()`.
 
+## Menu checkmark sync
+The native menu's `CheckMenuItem`s are constructed in `setup()` with hardcoded
+default checked states (Full/Rows/System, Description+Options on) before the
+frontend has loaded its persisted settings from `tauri-plugin-store`. Without
+an explicit sync, a restored session (e.g. Compact reference, Columns layout)
+would show correctly on screen while the View menu still showed the hardcoded
+defaults checked.
+
+Fix: `MenuHandles` (in `lib.rs`) holds clones of every checkable menu item,
+registered as Tauri app state. The `sync_menu_state` command sets all of them
+from values passed by the frontend; `App.tsx` calls it once, right after
+restoring persisted settings at startup. `CheckMenuItem::set_checked` does not
+happen automatically on click — each `on_menu_event` arm must call it itself
+(this is also why `toggle_description`/`toggle_options` originally only
+emitted an event without flipping their own checkmark, and why
+`reset_layout` originally reset the reference/layout checkmarks but not
+appearance/description/options — both fixed alongside the startup sync).
+
 ## Multiple binary targets
 `default-run = "app"` required in `Cargo.toml`. Engine module must be `pub mod`.
 
@@ -109,6 +127,42 @@ through the payload chain so the UI can surface a notice when the cap is hit.
 
 The CLI is unaffected: `search_cache` (non-streaming, uncapped) is its entry
 point. Only the Tauri `search` command uses the streaming + capped path.
+
+## Search-loop allocation avoidance
+Two hot-path allocation sources were removed (both fire per *scanned candidate*,
+not just per match, so they scale with dictionary size, not result count):
+
+- `grouping.rs`'s `candidate_word()` returns `Cow<str>`: `normalize=true`
+  borrows `entry.norm` directly (already lowercased/stripped at cache-build
+  time — re-lowercasing it was pure waste), `normalize=false` allocates once.
+  Only converted to an owned `String` (`into_owned()`) on an actual match.
+- `matcher.rs`'s `MatchContext` stores letter-variable bindings (digits 0-9
+  only, see `parser.rs`) in a `Copy` `[Option<char>; 10]` array instead of a
+  `HashMap<u8, char>`, so backtracking clones (`*ctx` instead of `ctx.clone()`)
+  are a stack copy instead of a heap allocation.
+
+Deferred (same class of issue, not yet fixed): `search_cache_streaming` builds
+`MatchGroup`s once per batch and again over the full result set at the end,
+and clones each `RawMatch` twice; anagram matching (`matches_anagram_exact`/
+`matches_anagram_within`) still uses `HashMap<char, i32>` per candidate instead
+of a fixed-size array.
+
+## Results rendering performance
+`ResultsColumn.tsx`'s `GridView`/`ListView` are virtualized with
+`@tanstack/react-virtual` — only visible rows are mounted as DOM nodes.
+Necessary because `maxResults` is configurable up to 1,000,000; without
+virtualization a broad pattern would render one DOM node per match and freeze
+the webview. `GridView` uses fixed-column CSS grid rows (column count from a
+`ResizeObserver`-measured container width) rather than `flex-wrap`, since
+virtualization needs deterministic row membership; long variant text
+truncates with a `title` tooltip instead of wrapping.
+
+`App.tsx`'s `search:list-result-partial` handler buffers incoming batches in
+a ref and flushes to state at most once per animation frame (`requestAnimationFrame`),
+instead of the previous `[...lr.results, ...groups]` spread on every batch
+(O(n) copy per batch, ~hundreds of batches for a large streamed search).
+`search:list-result`/`-final` clear the buffer for their list so a
+still-pending flush can't race in after the authoritative replace.
 
 ## Normalize=OFF anagram matching
 Anagram matching is a letter-set operation — punctuation (apostrophes, hyphens)

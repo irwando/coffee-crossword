@@ -98,8 +98,10 @@ Rust Backend (lib.rs)
     — app state (registry, cache handles)
     — native menu bar construction
     — menu event → frontend event bridge
-    — exposes: search, get_registry, set_active_lists, build_list_cache,
-               set_dedup_enabled, rename_list, validate_pattern, describe_pattern
+    — exposes: search, cancel_search, get_registry, set_active_lists,
+               build_list_cache, rescan_registry, handles_ready,
+               set_dedup_enabled, rename_list, validate_pattern,
+               describe_pattern, sync_menu_state
     ↕
 Cache Layer (cache.rs)
     — builds .tsc from .txt

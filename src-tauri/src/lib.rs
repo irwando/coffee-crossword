@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    Emitter, Manager, State,
+    Emitter, Manager, State, Wry,
 };
 
 use crate::cache::{build_cache, open_cache, CacheHandle};
@@ -43,6 +43,23 @@ pub struct AppState {
     /// Replaced with a new Arc at the start of each search.
     /// Setting the flag to true causes search tasks to return early.
     pub search_cancel: Mutex<Arc<AtomicBool>>,
+}
+
+/// Handles to the native menu's checkable items, so their checked state can be
+/// synced from frontend state (e.g. persisted settings restored at startup,
+/// which the menu — built with hardcoded defaults during `setup()` — has no
+/// way to know about otherwise).
+struct MenuHandles {
+    ref_full: CheckMenuItem<Wry>,
+    ref_compact: CheckMenuItem<Wry>,
+    ref_off: CheckMenuItem<Wry>,
+    layout_rows: CheckMenuItem<Wry>,
+    layout_cols: CheckMenuItem<Wry>,
+    appearance_light: CheckMenuItem<Wry>,
+    appearance_dark: CheckMenuItem<Wry>,
+    appearance_system: CheckMenuItem<Wry>,
+    toggle_description: CheckMenuItem<Wry>,
+    toggle_options: CheckMenuItem<Wry>,
 }
 
 // ── Serialisable types sent to the frontend ──────────────────────────────────
@@ -595,6 +612,32 @@ fn validate_pattern(pattern: &str) -> Result<(), String> {
     engine::validate_pattern(pattern)
 }
 
+/// Sync the native menu's checkmarks to match frontend state. Called once at
+/// startup after persisted settings are restored (the menu is built with
+/// hardcoded defaults before the frontend has loaded its settings store), and
+/// safe to call any time frontend state changes some other way than a menu click.
+#[tauri::command]
+fn sync_menu_state(
+    reference: String,
+    layout: String,
+    appearance: String,
+    show_description: bool,
+    show_options: bool,
+    menu: State<MenuHandles>,
+) -> Result<(), String> {
+    let _ = menu.ref_full.set_checked(reference == "full");
+    let _ = menu.ref_compact.set_checked(reference == "compact");
+    let _ = menu.ref_off.set_checked(reference == "off");
+    let _ = menu.layout_rows.set_checked(layout == "stacked");
+    let _ = menu.layout_cols.set_checked(layout == "columns");
+    let _ = menu.appearance_light.set_checked(appearance == "light");
+    let _ = menu.appearance_dark.set_checked(appearance == "dark");
+    let _ = menu.appearance_system.set_checked(appearance == "system");
+    let _ = menu.toggle_description.set_checked(show_description);
+    let _ = menu.toggle_options.set_checked(show_options);
+    Ok(())
+}
+
 // ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -766,6 +809,20 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&file_menu, &edit_menu, &view_menu])?;
             app.set_menu(menu)?;
 
+            // ── Register menu handles so sync_menu_state can update checkmarks ──
+            app.manage(MenuHandles {
+                ref_full: ref_full.clone(),
+                ref_compact: ref_compact.clone(),
+                ref_off: ref_off.clone(),
+                layout_rows: layout_rows.clone(),
+                layout_cols: layout_cols.clone(),
+                appearance_light: appearance_light.clone(),
+                appearance_dark: appearance_dark.clone(),
+                appearance_system: appearance_system.clone(),
+                toggle_description: toggle_description.clone(),
+                toggle_options: toggle_options.clone(),
+            });
+
             // ── Menu event handler ─────────────────────────────────────────
             let al = appearance_light.clone();
             let ad = appearance_dark.clone();
@@ -777,6 +834,13 @@ pub fn run() {
             let lc = layout_cols.clone();
             let lr2 = layout_rows.clone();
             let lc2 = layout_cols.clone();
+            let al2 = appearance_light.clone();
+            let ad2 = appearance_dark.clone();
+            let as2 = appearance_system.clone();
+            let td = toggle_description.clone();
+            let td2 = toggle_description.clone();
+            let to_ = toggle_options.clone();
+            let to2 = toggle_options.clone();
 
             app.on_menu_event(move |app, event| {
                 let window = app.get_webview_window("main");
@@ -786,9 +850,17 @@ pub fn run() {
                     }
                 };
                 match event.id().as_ref() {
-                    "manage_lists"       => emit("menu:lists", ""),
-                    "toggle_description" => emit("menu:toggle", "description"),
-                    "toggle_options"     => emit("menu:toggle", "options"),
+                    "manage_lists" => emit("menu:lists", ""),
+                    "toggle_description" => {
+                        let next = !td.is_checked().unwrap_or(true);
+                        let _ = td.set_checked(next);
+                        emit("menu:toggle", "description");
+                    }
+                    "toggle_options" => {
+                        let next = !to_.is_checked().unwrap_or(true);
+                        let _ = to_.set_checked(next);
+                        emit("menu:toggle", "options");
+                    }
                     "layout_rows" => { let _ = lr.set_checked(true); let _ = lc.set_checked(false); emit("menu:layout", "stacked"); }
                     "layout_cols" => { let _ = lr.set_checked(false); let _ = lc.set_checked(true); emit("menu:layout", "columns"); }
                     "reset_layout" => {
@@ -797,6 +869,11 @@ pub fn run() {
                         let _ = ro.set_checked(false);
                         let _ = lr2.set_checked(true);
                         let _ = lc2.set_checked(false);
+                        let _ = al2.set_checked(false);
+                        let _ = ad2.set_checked(false);
+                        let _ = as2.set_checked(true);
+                        let _ = td2.set_checked(true);
+                        let _ = to2.set_checked(true);
                         emit("menu:reset_layout", "");
                     }
                     "ref_full" => { let _ = rf.set_checked(true); let _ = rc.set_checked(false); let _ = ro.set_checked(false); emit("menu:reference", "full"); }
@@ -816,6 +893,7 @@ pub fn run() {
             cancel_search,
             describe_pattern,
             validate_pattern,
+            sync_menu_state,
             get_registry,
             set_active_lists,
             set_dedup_enabled,

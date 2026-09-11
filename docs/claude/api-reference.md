@@ -3,14 +3,14 @@
 ## Engine public API (stable)
 
 ```rust
-pub fn search_words(words: &[String], pattern: &str, min_len: usize, max_len: usize,
+pub fn search_words(words: &[String], pattern: &str,
                     normalize: bool, fold_accents: bool) -> Vec<MatchGroup>
 pub fn validate_pattern(pattern: &str) -> Result<(), String>
 pub fn describe_pattern(pattern: &str) -> Option<String>
 pub fn normalize(word: &str) -> String
 
 // Cache-backed entry point
-pub fn search_cache(cache: &CacheHandle, pattern: &str, min_len: usize, max_len: usize,
+pub fn search_cache(cache: &CacheHandle, pattern: &str,
                     normalize: bool, fold_accents: bool) -> Vec<MatchGroup>
 
 pub struct MatchGroup {
@@ -24,13 +24,29 @@ pub struct MatchGroup {
 matching (`andre` matches `André`) — see `implementation-notes.md` for how it
 interacts with the `.tsc` cache format.
 
+Word length is an optional prefix on the pattern string itself, parsed by
+`parser::parse_length_prefix` before the rest of the pattern is parsed —
+there is no separate `min_len`/`max_len` parameter. Grammar (min word length
+is always 1):
+
+| Prefix | Meaning |
+|---|---|
+| `X:<pattern>` | Exactly X letters |
+| `X-:<pattern>` | At least X letters |
+| `-X:<pattern>` | At most X letters |
+| `X-Y:<pattern>` | Between X and Y letters (order doesn't matter — reversed is swapped) |
+| *(none)* | Unbounded, as before |
+
+`describe_pattern` prepends a matching clause ("Exactly 5 letters, …", "At
+least 8 letters, …") when a prefix is present.
+
 ---
 
 ## Tauri commands
 
 | Command | Purpose |
 |---|---|
-| `search` | Run pattern against all active lists; streams events. Params: `pattern`, `minLen`, `maxLen`, `normalize`, `foldAccents`, `timeoutSecs`, `maxResults` (0 = unlimited) |
+| `search` | Run pattern against all active lists; streams events. Params: `pattern` (word length is an optional prefix, e.g. `"5-8:cat*"`), `normalize`, `foldAccents`, `timeoutSecs`, `maxResults` (0 = unlimited) |
 | `cancel_search` | Set the shared cancel flag for the currently-running search |
 | `describe_pattern` | Return human-readable pattern description |
 | `validate_pattern` | Validate pattern syntax |
@@ -77,12 +93,14 @@ interacts with the `.tsc` cache format.
 ccli [OPTIONS] "<pattern>"
 ```
 
+Word length is an optional prefix on the pattern itself, not a flag: `"5:cat*"`
+(exactly 5), `"5-:cat*"` (at least 5), `"-5:cat*"` (at most 5), `"5-8:cat*"`
+(5 to 8) — see the shell quoting note below for the `-X:` form.
+
 ### Options
 
 | Flag | Default | Description |
 |---|---|---|
-| `--minlen N` | 1 | Minimum word length |
-| `--maxlen N` | 50 | Maximum word length |
 | `--dict PATH` | (repeatable) | Dictionary file(s); if none given, scans `dictionaries/` folder |
 | `--normalize <true\|false>` | true | Strip punctuation before matching (e.g. --normalize false) |
 | `--fold-accents <true\|false>` | false | Fold accented letters to plain equivalents, e.g. "andre" matches "André" (e.g. --fold-accents true) |
@@ -138,6 +156,11 @@ JSON output: array of `{ list_id, list_name, entry_count, results: [...] }`.
 Patterns containing `!` must use single quotes to prevent bash history expansion:
 ```bash
 ccli 'c* & !cat*'
+```
+Patterns starting with `-` (e.g. a `-X:` max-length prefix) look like a flag
+to clap — pass them after `--`:
+```bash
+ccli -- '-5:cat*'
 ```
 
 ### Default dictionary search order

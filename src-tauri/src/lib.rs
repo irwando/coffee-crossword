@@ -342,8 +342,6 @@ async fn build_list_cache(
 #[tauri::command]
 async fn search(
     pattern: String,
-    min_len: usize,
-    max_len: usize,
     normalize: bool,
     fold_accents: bool,
     timeout_secs: u64,
@@ -418,8 +416,6 @@ async fn search(
             let (results, truncated) = search_cache_cancellable_streaming(
                 &cache_handle,
                 &pattern,
-                min_len,
-                max_len,
                 normalize,
                 fold_accents,
                 &cancel,

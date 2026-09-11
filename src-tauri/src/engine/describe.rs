@@ -3,7 +3,7 @@
 // All helpers are private — only describe_pattern is pub(crate).
 
 use crate::engine::ast::{LogicalExpr, Pattern, SubPattern, TemplateChar};
-use crate::engine::parser::{expand_macros, parse_logical};
+use crate::engine::parser::{expand_macros, parse_length_prefix, parse_logical};
 
 /// Return a human-readable description of a pattern string.
 /// Returns None if the pattern is empty or invalid.
@@ -14,11 +14,33 @@ pub(crate) fn describe_pattern(pattern: &str) -> Option<String> {
         return None;
     }
 
+    let (min_len, max_len, remainder) = parse_length_prefix(input);
+    let remainder = remainder.trim();
+    if remainder.is_empty() {
+        return None;
+    }
+
     // Validate the pattern parses before describing it
-    let expanded = expand_macros(input);
+    let expanded = expand_macros(remainder);
     let expr = parse_logical(&expanded)?;
 
-    Some(describe_expr(&expr))
+    let desc = describe_expr(&expr);
+    Some(match describe_length_prefix(min_len, max_len) {
+        Some(length_desc) => format!("{}, {}", length_desc, desc),
+        None => desc,
+    })
+}
+
+/// Describe an explicit word-length prefix (e.g. "5:", "5-:", "-8:", "5-8:"),
+/// or None when the pattern didn't specify one.
+fn describe_length_prefix(min_len: usize, max_len: usize) -> Option<String> {
+    match (min_len, max_len) {
+        (1, usize::MAX) => None,
+        (min, max) if min == max => Some(format!("Exactly {} letters", min)),
+        (min, usize::MAX) => Some(format!("At least {} letters", min)),
+        (1, max) => Some(format!("At most {} letters", max)),
+        (min, max) => Some(format!("{} to {} letters", min, max)),
+    }
 }
 
 /// Describe a logical expression tree.

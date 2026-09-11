@@ -71,8 +71,6 @@ const DEFAULTS = {
   foldAccents: false,
   variantMode: "show" as VariantMode,
   viewMode: "list" as ViewMode,
-  minLen: 1,
-  maxLen: 50,
   maxResults: 100_000,
   referenceMode: "full" as ReferenceMode,
   showDescription: true,
@@ -128,6 +126,10 @@ const REFERENCE_ROWS = [
   { feature: "NOT",              pattern: "c* & !cat*",   match: "cast",          note: "exclude matches"            },
   { feature: "Sub-pattern",      pattern: "...(;orange)", match: "patronage",     note: "() switches mode"           },
   { feature: "Punctuation",      pattern: "...-..-....", match: "pick-me-up",    note: "normalize off to use"       },
+  { feature: "Exact length",     pattern: "5:cat*",       match: "catty",         note: "X: = exactly X letters"     },
+  { feature: "Min length",       pattern: "8-:cat*",      match: "category",      note: "X-: = at least X letters"   },
+  { feature: "Max length",       pattern: "-4:cat*",      match: "cats",          note: "-X: = at most X letters"    },
+  { feature: "Length range",     pattern: "5-6:cat*",     match: "catchy",        note: "X-Y: = X to Y letters"      },
 ];
 
 // ── Reference panels ──────────────────────────────────────────────────────────
@@ -309,8 +311,6 @@ export default function App() {
   const [foldAccents, setFoldAccents] = useState(DEFAULTS.foldAccents);
   const [variantMode, setVariantMode] = useState<VariantMode>(DEFAULTS.variantMode);
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULTS.viewMode);
-  const [minLen, setMinLen] = useState(DEFAULTS.minLen);
-  const [maxLen, setMaxLen] = useState(DEFAULTS.maxLen);
   const [maxResults, setMaxResults] = useState(DEFAULTS.maxResults);
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>(DEFAULTS.referenceMode);
   const [showDescription, setShowDescription] = useState(DEFAULTS.showDescription);
@@ -359,8 +359,6 @@ export default function App() {
         store.get<boolean>("foldAccents"),
         store.get<VariantMode>("variantMode"),
         store.get<ViewMode>("viewMode"),
-        store.get<number>("minLen"),
-        store.get<number>("maxLen"),
         store.get<ReferenceMode>("referenceMode"),
         store.get<boolean>("showDescription"),
         store.get<boolean>("showOptions"),
@@ -373,14 +371,12 @@ export default function App() {
         store.get<number>("searchTimeout"),
         store.get<number>("refColWidth"),
         store.get<number>("maxResults"),
-      ]).then(([n, fold, vm, view, min, max, ref_, desc, opts, app_, hist,
+      ]).then(([n, fold, vm, view, ref_, desc, opts, app_, hist,
                 activeIds, displayNames, dedup, layout, timeout_, refW, maxRes]) => {
         if (n !== null && n !== undefined) setNormalize(n);
         if (fold !== null && fold !== undefined) setFoldAccents(fold);
         if (vm) setVariantMode(vm);
         if (view) setViewMode(view);
-        if (min !== null && min !== undefined) setMinLen(min);
-        if (max !== null && max !== undefined) setMaxLen(max);
         if (ref_) setReferenceMode(ref_);
         if (desc !== null && desc !== undefined) setShowDescription(desc);
         if (opts !== null && opts !== undefined) setShowOptions(opts);
@@ -457,8 +453,6 @@ export default function App() {
     s.set("foldAccents", foldAccents);
     s.set("variantMode", variantMode);
     s.set("viewMode", viewMode);
-    s.set("minLen", minLen);
-    s.set("maxLen", maxLen);
     s.set("referenceMode", referenceMode);
     s.set("showDescription", showDescription);
     s.set("showOptions", showOptions);
@@ -467,7 +461,7 @@ export default function App() {
     s.set("searchTimeout", searchTimeout);
     s.set("refColWidth", refColWidth);
     s.set("maxResults", maxResults);
-  }, [normalize, foldAccents, variantMode, viewMode, minLen, maxLen, maxResults, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
+  }, [normalize, foldAccents, variantMode, viewMode, maxResults, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
 
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
@@ -659,8 +653,6 @@ export default function App() {
       setFoldAccents(DEFAULTS.foldAccents);
       setVariantMode(DEFAULTS.variantMode);
       setViewMode(DEFAULTS.viewMode);
-      setMinLen(DEFAULTS.minLen);
-      setMaxLen(DEFAULTS.maxLen);
       setAppearance(DEFAULTS.appearance);
       applyTheme(DEFAULTS.appearance);
       setLayoutMode(DEFAULTS.layoutMode);
@@ -725,7 +717,7 @@ export default function App() {
     }
 
     try {
-      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize, foldAccents, timeoutSecs: searchTimeout, maxResults });
+      await invoke("search", { pattern: trimmed, normalize, foldAccents, timeoutSecs: searchTimeout, maxResults });
       // Results arrive via events (search:start, search:list-result, search:complete).
       // Update history after issuing the search.
       setHistory((prev) => {
@@ -737,7 +729,7 @@ export default function App() {
       setStatusMsg(`Error: ${err}`);
       setIsSearching(false);
     }
-  }, [pattern, minLen, maxLen, maxResults, normalize, foldAccents, searchTimeout, listsLoading, buildInProgress]);
+  }, [pattern, maxResults, normalize, foldAccents, searchTimeout, listsLoading, buildInProgress]);
 
   const doCancel = useCallback(async () => {
     await invoke("cancel_search");
@@ -1012,22 +1004,9 @@ export default function App() {
           </div>
         )}
 
-        {/* Word length filter + timeout */}
+        {/* Result limits + timeout */}
         <div className="flex items-center gap-2 pb-2 text-xs text-gray-400">
-          <span>Word length:</span>
-          <input
-            type="number" value={minLen} min={1} max={maxLen}
-            onChange={(e) => setMinLen(Math.max(1, Number(e.target.value)))}
-            className="w-12 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
-          />
-          <span>to</span>
-          <input
-            type="number" value={maxLen} min={minLen} max={100}
-            onChange={(e) => setMaxLen(Math.max(minLen, Number(e.target.value)))}
-            className="w-12 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
-          />
-          <span>letters</span>
-          <span className="ml-auto">Max results:</span>
+          <span>Max results:</span>
           <input
             type="number" value={maxResults} min={100} max={1_000_000} step={1000}
             onChange={(e) => setMaxResults(Math.min(1_000_000, Math.max(100, Number(e.target.value))))}

@@ -220,6 +220,29 @@ non-alphabetic/non-digit characters from the word before building `word_chars`,
 regardless of normalize mode. Without this, `canter's` had 8 chars and failed
 the length check against a 7-letter anagram set.
 
+## Word-length prefix (replaces the "Word length" window option)
+Word length moved from a `minLen`/`maxLen` UI option into the pattern text
+itself: `5:cat*` (exactly 5), `5-:cat*` (at least 5), `-5:cat*` (at most 5),
+`5-8:cat*` (5 to 8) — min word length is always 1. `engine::parser::parse_length_prefix`
+strips this prefix off the front of the raw pattern string (before macro
+expansion / accent folding / logical parsing) and returns `(min_len, max_len,
+remainder)`, defaulting to `(1, usize::MAX)` when no prefix is present.
+
+Because of this, `search_words`, `search_cache`, and the internal
+`search_cache_cancellable_streaming` no longer take `min_len`/`max_len`
+parameters at all — the only place length is specified is the pattern string.
+`grouping.rs`'s internal search loops are unchanged (still parameterized by
+min/max length; `usize::MAX` is naturally capped by the existing
+`max_len.min(255)` cache-bucket logic, so an absurd `9999-:` prefix just
+yields an empty range rather than a panic). `describe_pattern` and
+`validate_pattern` strip the same prefix so `5:` alone (no pattern after the
+colon) is correctly treated as empty/invalid, and `describe_pattern` prepends
+a clause ("Exactly 5 letters, …") when a prefix is present.
+
+A pattern starting with `-` (the `-X:` form) looks like a CLI flag to clap —
+`ccli`'s call sites need `ccli -- '-5:cat*'`; not an issue for the frontend's
+plain text input.
+
 ---
 
 ## Startup delay fix — implemented

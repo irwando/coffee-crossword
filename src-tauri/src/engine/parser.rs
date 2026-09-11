@@ -4,6 +4,64 @@
 
 use crate::engine::ast::{AnagramChar, LogicalExpr, Pattern, SubPattern, TemplateChar};
 
+/// Parse an optional word-length prefix from the very front of a raw pattern
+/// string: "X:", "X-:", "-X:", or "X-Y:" (see docs/claude/api-reference.md
+/// for the full grammar). Returns (min_len, max_len, remainder) — remainder
+/// is the pattern text after the prefix (or the whole input, unchanged, if no
+/// prefix is present). Defaults to (1, usize::MAX) when absent; min word
+/// length is always 1, so a "-X:" prefix leaves min_len at 1.
+/// pub(crate) — used by mod.rs (search entry points) and describe.rs.
+pub(crate) fn parse_length_prefix(input: &str) -> (usize, usize, &str) {
+    let bytes = input.as_bytes();
+
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    let first_num = &input[..i];
+
+    let has_dash = i < bytes.len() && bytes[i] == b'-';
+    let mut j = i + if has_dash { 1 } else { 0 };
+    let second_start = j;
+    while j < bytes.len() && bytes[j].is_ascii_digit() {
+        j += 1;
+    }
+    let second_num = &input[second_start..j];
+
+    // Must be immediately followed by ':', with at least one number present.
+    if j >= bytes.len() || bytes[j] != b':' || (first_num.is_empty() && second_num.is_empty()) {
+        return (1, usize::MAX, input);
+    }
+
+    let remainder = &input[j + 1..];
+
+    if !has_dash {
+        // "X:" — exact length.
+        let x: usize = first_num.parse().unwrap_or(1).max(1);
+        return (x, x, remainder);
+    }
+
+    match (first_num.is_empty(), second_num.is_empty()) {
+        // "X-:" — at least X.
+        (false, true) => {
+            let x: usize = first_num.parse().unwrap_or(1).max(1);
+            (x, usize::MAX, remainder)
+        }
+        // "-Y:" — at most Y.
+        (true, false) => {
+            let y: usize = second_num.parse().unwrap_or(usize::MAX).max(1);
+            (1, y, remainder)
+        }
+        // "X-Y:" — range (swap if given out of order).
+        (false, false) => {
+            let x: usize = first_num.parse().unwrap_or(1).max(1);
+            let y: usize = second_num.parse().unwrap_or(usize::MAX).max(1);
+            if x <= y { (x, y, remainder) } else { (y, x, remainder) }
+        }
+        (true, true) => (1, usize::MAX, input),
+    }
+}
+
 /// Expand @ and # macros before any other parsing.
 /// pub(crate) because describe.rs also needs to expand macros before
 /// describing a pattern.

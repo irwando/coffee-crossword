@@ -37,18 +37,19 @@ fn fold_pattern(pattern: &str, fold_accents_mode: bool) -> std::borrow::Cow<'_, 
 }
 
 /// Search a word list using a pattern string.
-/// Handles all pattern types including logical operations.
+/// Handles all pattern types including logical operations. Word length is an
+/// optional prefix on the pattern itself (e.g. "5:cat*", "5-8:cat*") rather
+/// than a separate parameter — see `parser::parse_length_prefix`.
 /// This is the main entry point for plain-text word lists and tests.
 pub fn search_words(
     words: &[String],
     pattern: &str,
-    min_len: usize,
-    max_len: usize,
     normalize_mode: bool,
     fold_accents_mode: bool,
 ) -> Vec<MatchGroup> {
-    let pattern = fold_pattern(pattern, fold_accents_mode);
-    match parser::parse_logical(&pattern) {
+    let (min_len, max_len, remainder) = parser::parse_length_prefix(pattern);
+    let remainder = fold_pattern(remainder, fold_accents_mode);
+    match parser::parse_logical(&remainder) {
         Some(expr) => grouping::search(words, &expr, min_len, max_len, normalize_mode, fold_accents_mode),
         None => Vec::new(),
     }
@@ -60,13 +61,12 @@ pub fn search_words(
 pub fn search_cache(
     cache: &crate::cache::CacheHandle,
     pattern: &str,
-    min_len: usize,
-    max_len: usize,
     normalize_mode: bool,
     fold_accents_mode: bool,
 ) -> Vec<MatchGroup> {
-    let pattern = fold_pattern(pattern, fold_accents_mode);
-    let expr = match parser::parse_logical(&pattern) {
+    let (min_len, max_len, remainder) = parser::parse_length_prefix(pattern);
+    let remainder = fold_pattern(remainder, fold_accents_mode);
+    let expr = match parser::parse_logical(&remainder) {
         Some(e) => e,
         None => return Vec::new(),
     };
@@ -85,8 +85,6 @@ pub fn search_cache(
 pub(crate) fn search_cache_cancellable_streaming<F>(
     cache: &crate::cache::CacheHandle,
     pattern: &str,
-    min_len: usize,
-    max_len: usize,
     normalize_mode: bool,
     fold_accents_mode: bool,
     cancel: &std::sync::atomic::AtomicBool,
@@ -96,8 +94,9 @@ pub(crate) fn search_cache_cancellable_streaming<F>(
 where
     F: Fn(Vec<MatchGroup>),
 {
-    let pattern = fold_pattern(pattern, fold_accents_mode);
-    let expr = match parser::parse_logical(&pattern) {
+    let (min_len, max_len, remainder) = parser::parse_length_prefix(pattern);
+    let remainder = fold_pattern(remainder, fold_accents_mode);
+    let expr = match parser::parse_logical(&remainder) {
         Some(e) => e,
         None => return (Vec::new(), false),
     };
@@ -112,7 +111,12 @@ pub fn validate_pattern(pattern: &str) -> Result<(), String> {
     if input.is_empty() {
         return Err("Pattern is empty".to_string());
     }
-    match parser::parse_logical(input) {
+    let (_, _, remainder) = parser::parse_length_prefix(input);
+    let remainder = remainder.trim();
+    if remainder.is_empty() {
+        return Err("Pattern is empty".to_string());
+    }
+    match parser::parse_logical(remainder) {
         Some(_) => Ok(()),
         None => Err("Invalid pattern".to_string()),
     }

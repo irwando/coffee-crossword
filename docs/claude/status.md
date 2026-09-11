@@ -17,6 +17,7 @@
 - [x] Logical operations (`&`, `|`, `!`) with grouping `()`
 - [x] Sub-patterns `()` — type-switching inside patterns
 - [x] Punctuation matching
+- [x] Word-length prefix (`5:`, `5-:`, `-5:`, `5-8:`)
 
 ### Phase 3 — word list management ✅ Complete (initial)
 - [x] `.tsc` binary cache format with mmap
@@ -46,6 +47,7 @@
 - [x] Word List Layout (Grid/List) and Variants (Show/Hide) moved from inline Options-row buttons to View menu; "Layout" renamed to "Window Layout" to disambiguate from the new Word List Layout
 - [x] Grid view: collapsible length-group headers (matching List view), tighter chip sizing (row height 34px → 28px; fixed CSS Grid `align-items: stretch` making chips look ~1.5x too tall)
 - [x] List view selection-highlight fix — `bg-white` was applied unconditionally alongside a conditional `bg-blue-50`, so which one rendered depended on Tailwind's generated stylesheet order, not click state; made mutually exclusive via ternary (matching Grid view's already-correct pattern)
+- [x] Word length as a pattern prefix (`5:`, `5-:`, `-5:`, `5-8:`) — replaces the old "Word length" window option; parsed once in `engine::parser::parse_length_prefix` before the rest of the pattern, so `search_words`/`search_cache`/CLI/`search` Tauri command no longer take separate min/max-length params; see `implementation-notes.md`
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window

@@ -3,10 +3,10 @@ use crate::engine::mod_pub::search_words;
 use crate::engine::test_utils::{keys, word_list};
 
 fn sw(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
-    search_words(&word_list(), pattern, 1, 50, true, false)
+    search_words(&word_list(), pattern, true, false)
 }
 fn sw_raw(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
-    search_words(&word_list(), pattern, 1, 50, false, false)
+    search_words(&word_list(), pattern, false, false)
 }
 
 #[test] fn test_template_basic() { assert!(keys(&sw(".l...r.n")).contains(&"electron")); }
@@ -24,7 +24,7 @@ fn sw_raw(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
 // list (not the shared `word_list()`) so it doesn't perturb other tests' exact-count
 // assertions against the shared list.
 fn sw_unicode(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
-    search_words(&["café".to_string(), "cat".to_string()], pattern, 1, 50, true, false)
+    search_words(&["café".to_string(), "cat".to_string()], pattern, true, false)
 }
 #[test] fn test_anagram_unicode_letter_exact() { let r = sw_unicode(";acéf"); let k = keys(&r); assert!(k.contains(&"café")); let c = r.iter().find(|r| r.normalized == "café").unwrap(); assert_eq!(c.balance, None); }
 #[test] fn test_anagram_unicode_letter_with_blank() { let r = sw_unicode(";acé."); let c = r.iter().find(|r| r.normalized == "café"); assert!(c.is_some()); assert_eq!(c.unwrap().balance, Some("+F".to_string())); }
@@ -35,15 +35,15 @@ fn andre_words() -> Vec<String> {
 }
 #[test]
 fn test_fold_accents_template_match() {
-    let with_fold = search_words(&andre_words(), "andre", 1, 50, true, true);
+    let with_fold = search_words(&andre_words(), "andre", true, true);
     assert!(keys(&with_fold).contains(&"andre"), "expected andre with fold-accents on, got {:?}", keys(&with_fold));
 
-    let without_fold = search_words(&andre_words(), "andre", 1, 50, true, false);
+    let without_fold = search_words(&andre_words(), "andre", true, false);
     assert!(without_fold.is_empty(), "expected no match with fold-accents off, got {:?}", keys(&without_fold));
 }
 #[test]
 fn test_fold_accents_anagram_match() {
-    let r = search_words(&andre_words(), ";andre", 1, 50, true, true);
+    let r = search_words(&andre_words(), ";andre", true, true);
     assert!(keys(&r).contains(&"andre"), "expected andre via folded anagram match, got {:?}", keys(&r));
 }
 #[test]
@@ -52,7 +52,7 @@ fn test_fold_accents_merges_as_variant_when_normalized() {
     // "andre" entry would — so it should show up as a variant, same
     // mechanism that already merges case variants.
     let words = vec!["André".to_string()];
-    let r = search_words(&words, "andre", 1, 50, true, true);
+    let r = search_words(&words, "andre", true, true);
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].normalized, "andre");
     assert_eq!(r[0].variants, vec!["André".to_string()]);
@@ -74,8 +74,8 @@ fn test_search_cache_matches_search_words_with_fold_accents() {
     let handle = open_cache(&tsc).unwrap();
 
     for pattern in &["andre", ";andre"] {
-        let from_words = search_words(&words, pattern, 1, 50, true, true);
-        let from_cache = search_cache(&handle, pattern, 1, 50, true, true);
+        let from_words = search_words(&words, pattern, true, true);
+        let from_cache = search_cache(&handle, pattern, true, true);
 
         let mut wk: Vec<&str> = from_words.iter().map(|r| r.normalized.as_str()).collect();
         let mut ck: Vec<&str> = from_cache.iter().map(|r| r.normalized.as_str()).collect();
@@ -143,8 +143,8 @@ fn test_search_cache_matches_search_words() {
     let handle = open_cache(&tsc).unwrap();
 
     for pattern in &[";acenrt", ".l...r.n", "c* & *s", "m*ja", "e*"] {
-        let from_words = search_words(&words, pattern, 1, 50, true, false);
-        let from_cache = search_cache(&handle, pattern, 1, 50, true, false);
+        let from_words = search_words(&words, pattern, true, false);
+        let from_cache = search_cache(&handle, pattern, true, false);
 
         let mut wk: Vec<&str> = from_words.iter().map(|r| r.normalized.as_str()).collect();
         let mut ck: Vec<&str> = from_cache.iter().map(|r| r.normalized.as_str()).collect();
@@ -165,8 +165,8 @@ fn test_concurrent_search_words_independent() {
     let w1 = words1.clone();
     let w2 = words2.clone();
 
-    let t1 = thread::spawn(move || search_words(&w1, ";acenrt", 1, 50, true, false));
-    let t2 = thread::spawn(move || search_words(&w2, "m*ja", 1, 50, true, false));
+    let t1 = thread::spawn(move || search_words(&w1, ";acenrt", true, false));
+    let t2 = thread::spawn(move || search_words(&w2, "m*ja", true, false));
 
     let r1 = t1.join().unwrap();
     let r2 = t2.join().unwrap();
@@ -176,4 +176,83 @@ fn test_concurrent_search_words_independent() {
     // Results are independent — no cross-contamination.
     assert!(!keys(&r1).contains(&"maharaja"));
     assert!(!keys(&r2).contains(&"canter"));
+}
+
+// ── Word-length prefix ("5:", "5-:", "-5:", "5-8:") ─────────────────────────────
+
+#[test]
+fn test_length_prefix_exact() {
+    let r = sw("5:c*");
+    assert!(!r.is_empty());
+    for res in &r { assert_eq!(res.normalized.len(), 5); assert!(res.normalized.starts_with('c')); }
+}
+#[test]
+fn test_length_prefix_at_least() {
+    let r = sw("8-:c*");
+    assert!(!r.is_empty());
+    for res in &r { assert!(res.normalized.len() >= 8); assert!(res.normalized.starts_with('c')); }
+}
+#[test]
+fn test_length_prefix_at_most() {
+    let r = sw("-4:c*");
+    assert!(!r.is_empty());
+    for res in &r { assert!(res.normalized.len() <= 4); assert!(res.normalized.starts_with('c')); }
+}
+#[test]
+fn test_length_prefix_range() {
+    let r = sw("5-6:c*");
+    assert!(!r.is_empty());
+    for res in &r { assert!(res.normalized.len() >= 5 && res.normalized.len() <= 6); assert!(res.normalized.starts_with('c')); }
+}
+#[test]
+fn test_length_prefix_range_reversed_is_swapped() {
+    // "8-5:" and "5-8:" should behave identically — order shouldn't matter.
+    let forward = sw("5-8:c*");
+    let reversed = sw("8-5:c*");
+    assert_eq!(keys(&forward), keys(&reversed));
+    assert!(!forward.is_empty());
+}
+#[test]
+fn test_length_prefix_absent_defaults_to_unbounded() {
+    // No prefix behaves exactly as before — same results as an explicit huge range.
+    let default = sw("c*");
+    let explicit = sw("1-100:c*");
+    assert_eq!(keys(&default), keys(&explicit));
+}
+#[test]
+fn test_length_prefix_with_anagram_and_logical() {
+    let r = sw("6:;acenrt");
+    let k = keys(&r);
+    assert!(k.contains(&"canter") || k.contains(&"nectar"), "expected a 6-letter anagram match, got {:?}", k);
+    for res in &r { assert_eq!(res.normalized.len(), 6); }
+}
+#[test]
+fn test_length_prefix_only_no_pattern_is_empty() {
+    // "5:" with nothing after the colon isn't a valid pattern — same as "".
+    assert!(sw("5:").is_empty());
+}
+#[test]
+fn test_length_prefix_does_not_misfire_on_letter_variables() {
+    // A bare letter-variable pattern like "12321" (no colon) must still work —
+    // only an immediate, colon-terminated numeric prefix is special.
+    let r = sw("12321");
+    assert!(keys(&r).contains(&"level"));
+}
+#[test]
+fn test_validate_pattern_with_length_prefix() {
+    use crate::engine::mod_pub::validate_pattern;
+    assert!(validate_pattern("5:cat*").is_ok());
+    assert!(validate_pattern("5-:cat*").is_ok());
+    assert!(validate_pattern("-5:cat*").is_ok());
+    assert!(validate_pattern("5-8:cat*").is_ok());
+    assert!(validate_pattern("5:").is_err());
+}
+#[test]
+fn test_describe_pattern_with_length_prefix() {
+    use crate::engine::mod_pub::describe_pattern;
+    assert!(describe_pattern("5:cat*").unwrap().starts_with("Exactly 5 letters"));
+    assert!(describe_pattern("5-:cat*").unwrap().starts_with("At least 5 letters"));
+    assert!(describe_pattern("-5:cat*").unwrap().starts_with("At most 5 letters"));
+    assert!(describe_pattern("5-8:cat*").unwrap().starts_with("5 to 8 letters"));
+    assert!(!describe_pattern("cat*").unwrap().to_lowercase().contains("letters,"));
 }

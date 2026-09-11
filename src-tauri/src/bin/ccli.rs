@@ -4,6 +4,9 @@
 //
 // Shell quoting: patterns containing ! must use single quotes:
 //   ccli 'c* & !cat*'
+// Patterns starting with "-" (e.g. a "-X:" max-length prefix) look like a
+// flag to clap — pass them after `--`:
+//   ccli -- '-5:cat*'
 
 use app_lib::cache::{build_cache, cache_validity, open_cache, CacheValidity};
 use app_lib::dedup::{deduplicate, ListSearchResult};
@@ -15,16 +18,10 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(name = "ccli", version, about = "Coffee Crossword CLI — search word lists using TEA-style patterns")]
 struct Args {
-    /// Pattern to search for (omit to read from stdin)
+    /// Pattern to search for (omit to read from stdin). Word length is an
+    /// optional prefix on the pattern itself: "5:cat*" (exactly 5), "5-:cat*"
+    /// (at least 5), "-5:cat*" (at most 5), "5-8:cat*" (5 to 8).
     pattern: Option<String>,
-
-    /// Minimum word length
-    #[arg(long, default_value_t = 1)]
-    minlen: usize,
-
-    /// Maximum word length
-    #[arg(long, default_value_t = 50)]
-    maxlen: usize,
 
     /// Dictionary .txt file(s) to search. Repeatable: --dict a.txt --dict b.txt
     /// If not given, scans the dictionaries/ folder for all Ready lists.
@@ -190,7 +187,7 @@ fn search_one(dict: &DictInfo, pattern: &str, args: &Args) -> ListSearchResult {
     if !args.no_cache && matches!(dict.status, CacheValidity::Ready) {
         match open_cache(&dict.tsc_path) {
             Ok(handle) => {
-                let results = search_cache(&handle, pattern, args.minlen, args.maxlen, args.normalize, args.fold_accents);
+                let results = search_cache(&handle, pattern, args.normalize, args.fold_accents);
                 return ListSearchResult {
                     list_id: dict.id.clone(),
                     list_name: handle.display_name.clone(),
@@ -208,7 +205,7 @@ fn search_one(dict: &DictInfo, pattern: &str, args: &Args) -> ListSearchResult {
     // Plain text fallback.
     match load_words(&dict.txt_path) {
         Ok(words) => {
-            let results = search_words(&words, pattern, args.minlen, args.maxlen, args.normalize, args.fold_accents);
+            let results = search_words(&words, pattern, args.normalize, args.fold_accents);
             ListSearchResult {
                 list_id: dict.id.clone(),
                 list_name: dict.id.clone(),

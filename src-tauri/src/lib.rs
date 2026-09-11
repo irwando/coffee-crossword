@@ -341,6 +341,7 @@ async fn search(
     min_len: usize,
     max_len: usize,
     normalize: bool,
+    fold_accents: bool,
     timeout_secs: u64,
     max_results: usize,
     state: State<'_, AppState>,
@@ -416,6 +417,7 @@ async fn search(
                 min_len,
                 max_len,
                 normalize,
+                fold_accents,
                 &cancel,
                 max_results,
                 move |batch| {

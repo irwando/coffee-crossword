@@ -7,7 +7,6 @@
 // preserved) rather than the fully normalized form. grouping.rs passes both
 // forms to eval_expr; eval_pattern selects which to use based on pattern content.
 
-use std::collections::HashMap;
 use crate::engine::ast::{AnagramChar, LogicalExpr, Pattern, SubPattern, TemplateChar};
 
 /// Carries letter variable bindings through template matching.
@@ -31,6 +30,86 @@ impl MatchContext {
                 true
             }
         }
+    }
+}
+
+/// Small char -> count multiset used by anagram matching, avoiding a
+/// `HashMap` per candidate word on the hot search-loop path. Dictionary
+/// words/phrases are almost always ASCII a-z/0-9 (counted here with no heap
+/// allocation), but `normalize()` keeps any Unicode letter (`char::is_alphabetic`),
+/// which real lists — e.g. Wikipedia titles with accented names — do contain.
+/// A hard-coded a-z/0-9-only array would silently miscount those, so any
+/// other character spills into a small `Vec` fallback instead (still correct,
+/// just not allocation-free — exactly as before for that rare case).
+#[derive(Clone)]
+struct CharCounts {
+    ascii: [i32; 36],
+    other: Vec<(char, i32)>,
+}
+
+impl Default for CharCounts {
+    fn default() -> Self {
+        CharCounts { ascii: [0; 36], other: Vec::new() }
+    }
+}
+
+impl CharCounts {
+    fn ascii_slot(ch: char) -> Option<usize> {
+        match ch {
+            'a'..='z' => Some((ch as u8 - b'a') as usize),
+            '0'..='9' => Some(26 + (ch as u8 - b'0') as usize),
+            _ => None,
+        }
+    }
+
+    fn ascii_char(slot: usize) -> char {
+        if slot < 26 {
+            (b'a' + slot as u8) as char
+        } else {
+            (b'0' + (slot - 26) as u8) as char
+        }
+    }
+
+    fn add(&mut self, ch: char, delta: i32) {
+        match Self::ascii_slot(ch) {
+            Some(i) => self.ascii[i] += delta,
+            None => match self.other.iter_mut().find(|(c, _)| *c == ch) {
+                Some(entry) => entry.1 += delta,
+                None => self.other.push((ch, delta)),
+            },
+        }
+    }
+
+    fn get(&self, ch: char) -> i32 {
+        match Self::ascii_slot(ch) {
+            Some(i) => self.ascii[i],
+            None => self.other.iter().find(|(c, _)| *c == ch).map(|&(_, v)| v).unwrap_or(0),
+        }
+    }
+
+    /// Sum of all positive counts (mirrors `.values().filter(|v| v > 0).sum()`
+    /// on the `HashMap<char, i32>` this replaces).
+    fn sum_positive(&self) -> i32 {
+        self.ascii.iter().filter(|&&v| v > 0).sum::<i32>()
+            + self.other.iter().filter(|(_, v)| *v > 0).map(|&(_, v)| v).sum::<i32>()
+    }
+
+    /// Every char with a positive count, repeated that many times, sorted —
+    /// mirrors the `flat_map(...).collect(); .sort()` pattern this replaces.
+    fn chars_with_repeats_sorted(&self) -> Vec<char> {
+        let mut result: Vec<char> = Vec::new();
+        for (slot, &count) in self.ascii.iter().enumerate() {
+            if count > 0 {
+                result.extend(std::iter::repeat(Self::ascii_char(slot)).take(count as usize));
+            }
+        }
+        for &(ch, count) in &self.other {
+            if count > 0 {
+                result.extend(std::iter::repeat(ch).take(count as usize));
+            }
+        }
+        result.sort();
+        result
     }
 }
 
@@ -157,16 +236,15 @@ fn matches_subpattern_anagram(word_slice: &[char], letters: &[char]) -> bool {
     if word_slice.len() != letters.len() {
         return false;
     }
-    let mut available: HashMap<char, i32> = HashMap::new();
+    let mut available = CharCounts::default();
     for &ch in letters {
-        *available.entry(ch).or_insert(0) += 1;
+        available.add(ch, 1);
     }
     for &ch in word_slice {
-        let count = available.entry(ch).or_insert(0);
-        if *count <= 0 {
+        if available.get(ch) <= 0 {
             return false;
         }
-        *count -= 1;
+        available.add(ch, -1);
     }
     true
 }
@@ -408,42 +486,31 @@ fn matches_anagram_exact(
         }
     }
 
-    let mut available: HashMap<char, i32> = HashMap::new();
+    let mut available = CharCounts::default();
     for &ch in &plain_letters {
-        *available.entry(ch).or_insert(0) += 1;
+        available.add(ch, 1);
     }
 
-    let mut needed: HashMap<char, i32> = HashMap::new();
+    let mut needed = CharCounts::default();
     for &ch in &remaining_unused {
-        let avail = available.entry(ch).or_insert(0);
-        if *avail > 0 {
-            *avail -= 1;
+        if available.get(ch) > 0 {
+            available.add(ch, -1);
         } else {
-            *needed.entry(ch).or_insert(0) += 1;
+            needed.add(ch, 1);
         }
     }
 
-    let missing_required: i32 = available.values().filter(|&&v| v > 0).map(|&v| v).sum();
+    let missing_required = available.sum_positive();
     if missing_required > 0 { return None; }
 
-    let extra_count: i32 = needed.values().sum();
+    let extra_count = needed.sum_positive();
     if !has_wildcard {
         let blanks_available = (dot_count.unwrap_or(0) as i32 - choice_slots.len() as i32).max(0);
         if extra_count > blanks_available { return None; }
     }
 
-    let mut omitted: Vec<char> = available
-        .iter()
-        .filter(|(_, &v)| v > 0)
-        .flat_map(|(&ch, &count)| std::iter::repeat(ch).take(count as usize))
-        .collect();
-    omitted.sort();
-
-    let mut added: Vec<char> = needed
-        .iter()
-        .flat_map(|(&ch, &count)| std::iter::repeat(ch).take(count as usize))
-        .collect();
-    added.sort();
+    let omitted = available.chars_with_repeats_sorted();
+    let added = needed.chars_with_repeats_sorted();
 
     let mut balance = String::new();
     if !omitted.is_empty() {
@@ -517,24 +584,21 @@ fn matches_anagram_within(
         }
     }
 
-    let mut available: HashMap<char, i32> = HashMap::new();
+    let mut available = CharCounts::default();
     for &ch in &plain_letters {
-        *available.entry(ch).or_insert(0) += 1;
+        available.add(ch, 1);
     }
 
     let mut extra: Vec<char> = Vec::new();
     for &ch in &remaining_unused {
-        let avail = available.entry(ch).or_insert(0);
-        if *avail > 0 {
-            *avail -= 1;
+        if available.get(ch) > 0 {
+            available.add(ch, -1);
         } else {
             extra.push(ch);
         }
     }
 
-    for &remaining in available.values() {
-        if remaining > 0 { return None; }
-    }
+    if available.sum_positive() > 0 { return None; }
 
     let effective_dots = dot_count.unwrap_or(0).saturating_sub(choice_slots.len());
     if extra.len() > effective_dots { return None; }

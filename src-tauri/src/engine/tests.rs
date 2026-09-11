@@ -3,10 +3,10 @@ use crate::engine::mod_pub::search_words;
 use crate::engine::test_utils::{keys, word_list};
 
 fn sw(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
-    search_words(&word_list(), pattern, 1, 50, true)
+    search_words(&word_list(), pattern, 1, 50, true, false)
 }
 fn sw_raw(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
-    search_words(&word_list(), pattern, 1, 50, false)
+    search_words(&word_list(), pattern, 1, 50, false, false)
 }
 
 #[test] fn test_template_basic() { assert!(keys(&sw(".l...r.n")).contains(&"electron")); }
@@ -18,6 +18,73 @@ fn sw_raw(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
 #[test] fn test_anagram_exact() { let r = sw(";acenrt"); let k = keys(&r); assert!(k.contains(&"canter")); assert!(k.contains(&"nectar")); assert!(k.contains(&"recant")); assert!(k.contains(&"trance")); assert_eq!(r.len(), 4); }
 #[test] fn test_anagram_with_blank() { let r = sw(";eiknrr."); let d = r.iter().find(|r| r.normalized == "drinker"); assert!(d.is_some()); assert_eq!(d.unwrap().balance, Some("+D".to_string())); }
 #[test] fn test_anagram_wildcard() { let r = sw(";cats*"); let k = keys(&r); assert!(k.contains(&"escalator")); assert!(k.contains(&"escapists")); assert!(r.len() >= 2); }
+// CharCounts (matcher.rs) falls back to a small Vec for non-ASCII chars instead of a
+// hard-coded a-z/0-9 array, so accented letters (e.g. Wikipedia-titles-style names) still
+// count correctly rather than being silently dropped/miscounted. Uses an isolated word
+// list (not the shared `word_list()`) so it doesn't perturb other tests' exact-count
+// assertions against the shared list.
+fn sw_unicode(pattern: &str) -> Vec<crate::engine::ast::MatchGroup> {
+    search_words(&["café".to_string(), "cat".to_string()], pattern, 1, 50, true, false)
+}
+#[test] fn test_anagram_unicode_letter_exact() { let r = sw_unicode(";acéf"); let k = keys(&r); assert!(k.contains(&"café")); let c = r.iter().find(|r| r.normalized == "café").unwrap(); assert_eq!(c.balance, None); }
+#[test] fn test_anagram_unicode_letter_with_blank() { let r = sw_unicode(";acé."); let c = r.iter().find(|r| r.normalized == "café"); assert!(c.is_some()); assert_eq!(c.unwrap().balance, Some("+F".to_string())); }
+
+// ── fold-accents option — also uses an isolated word list, not word_list() ────
+fn andre_words() -> Vec<String> {
+    vec!["André".to_string(), "cat".to_string()]
+}
+#[test]
+fn test_fold_accents_template_match() {
+    let with_fold = search_words(&andre_words(), "andre", 1, 50, true, true);
+    assert!(keys(&with_fold).contains(&"andre"), "expected andre with fold-accents on, got {:?}", keys(&with_fold));
+
+    let without_fold = search_words(&andre_words(), "andre", 1, 50, true, false);
+    assert!(without_fold.is_empty(), "expected no match with fold-accents off, got {:?}", keys(&without_fold));
+}
+#[test]
+fn test_fold_accents_anagram_match() {
+    let r = search_words(&andre_words(), ";andre", 1, 50, true, true);
+    assert!(keys(&r).contains(&"andre"), "expected andre via folded anagram match, got {:?}", keys(&r));
+}
+#[test]
+fn test_fold_accents_merges_as_variant_when_normalized() {
+    // With normalize+fold both on, "André" folds to the same key as a plain
+    // "andre" entry would — so it should show up as a variant, same
+    // mechanism that already merges case variants.
+    let words = vec!["André".to_string()];
+    let r = search_words(&words, "andre", 1, 50, true, true);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].normalized, "andre");
+    assert_eq!(r[0].variants, vec!["André".to_string()]);
+}
+
+#[test]
+fn test_search_cache_matches_search_words_with_fold_accents() {
+    use crate::cache::{build_cache, open_cache};
+    use crate::engine::search_cache;
+    use tempfile::TempDir;
+    use std::fs;
+
+    let dir = TempDir::new().unwrap();
+    let txt = dir.path().join("words.txt");
+    let words = andre_words();
+    fs::write(&txt, words.join("\n")).unwrap();
+    let tsc = txt.with_extension("tsc");
+    build_cache(&txt, &tsc, |_, _| {}).unwrap();
+    let handle = open_cache(&tsc).unwrap();
+
+    for pattern in &["andre", ";andre"] {
+        let from_words = search_words(&words, pattern, 1, 50, true, true);
+        let from_cache = search_cache(&handle, pattern, 1, 50, true, true);
+
+        let mut wk: Vec<&str> = from_words.iter().map(|r| r.normalized.as_str()).collect();
+        let mut ck: Vec<&str> = from_cache.iter().map(|r| r.normalized.as_str()).collect();
+        wk.sort();
+        ck.sort();
+        assert_eq!(wk, ck, "pattern {:?}: search_words vs search_cache differ with fold_accents on", pattern);
+        assert!(wk.contains(&"andre"), "pattern {:?}: expected andre, got {:?}", pattern, wk);
+    }
+}
 #[test] fn test_template_with_anagram_basic() { assert!(keys(&sw("e........;cats")).contains(&"escalator")); }
 #[test] fn test_template_with_anagram_balance() { let r = sw("e........;cats"); let e = r.iter().find(|r| r.normalized == "escapists"); assert!(e.is_some()); assert!(e.unwrap().balance.as_deref().unwrap_or("").starts_with('+')); }
 #[test] fn test_template_with_anagram_length_enforced() { for r in sw("e........;cats") { assert_eq!(r.normalized.len(), 9, "wrong length: {}", r.normalized); } }
@@ -76,8 +143,8 @@ fn test_search_cache_matches_search_words() {
     let handle = open_cache(&tsc).unwrap();
 
     for pattern in &[";acenrt", ".l...r.n", "c* & *s", "m*ja", "e*"] {
-        let from_words = search_words(&words, pattern, 1, 50, true);
-        let from_cache = search_cache(&handle, pattern, 1, 50, true);
+        let from_words = search_words(&words, pattern, 1, 50, true, false);
+        let from_cache = search_cache(&handle, pattern, 1, 50, true, false);
 
         let mut wk: Vec<&str> = from_words.iter().map(|r| r.normalized.as_str()).collect();
         let mut ck: Vec<&str> = from_cache.iter().map(|r| r.normalized.as_str()).collect();
@@ -98,8 +165,8 @@ fn test_concurrent_search_words_independent() {
     let w1 = words1.clone();
     let w2 = words2.clone();
 
-    let t1 = thread::spawn(move || search_words(&w1, ";acenrt", 1, 50, true));
-    let t2 = thread::spawn(move || search_words(&w2, "m*ja", 1, 50, true));
+    let t1 = thread::spawn(move || search_words(&w1, ";acenrt", 1, 50, true, false));
+    let t2 = thread::spawn(move || search_words(&w2, "m*ja", 1, 50, true, false));
 
     let r1 = t1.join().unwrap();
     let r2 = t2.join().unwrap();

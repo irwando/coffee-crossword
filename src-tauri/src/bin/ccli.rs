@@ -32,8 +32,17 @@ struct Args {
     dict: Vec<PathBuf>,
 
     /// Strip punctuation before matching (default: true, e.g. --normalize false to disable).
-    #[arg(long, default_value_t = true)]
+    // clap derive defaults `bool` fields to a value-less ArgAction::SetTrue flag, which
+    // would silently break `--normalize false` (the string "false" would be parsed as
+    // the positional pattern instead of this flag's value). `action = Set` makes it a
+    // real `--normalize <true|false>` option.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     normalize: bool,
+
+    /// Fold accented letters to plain equivalents before matching, e.g. "andre"
+    /// matches "André" (default: false, e.g. --fold-accents true to enable).
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    fold_accents: bool,
 
     /// Show anagram balances after each result
     #[arg(long)]
@@ -181,7 +190,7 @@ fn search_one(dict: &DictInfo, pattern: &str, args: &Args) -> ListSearchResult {
     if !args.no_cache && matches!(dict.status, CacheValidity::Ready) {
         match open_cache(&dict.tsc_path) {
             Ok(handle) => {
-                let results = search_cache(&handle, pattern, args.minlen, args.maxlen, args.normalize);
+                let results = search_cache(&handle, pattern, args.minlen, args.maxlen, args.normalize, args.fold_accents);
                 return ListSearchResult {
                     list_id: dict.id.clone(),
                     list_name: handle.display_name.clone(),
@@ -199,7 +208,7 @@ fn search_one(dict: &DictInfo, pattern: &str, args: &Args) -> ListSearchResult {
     // Plain text fallback.
     match load_words(&dict.txt_path) {
         Ok(words) => {
-            let results = search_words(&words, pattern, args.minlen, args.maxlen, args.normalize);
+            let results = search_words(&words, pattern, args.minlen, args.maxlen, args.normalize, args.fold_accents);
             ListSearchResult {
                 list_id: dict.id.clone(),
                 list_name: dict.id.clone(),

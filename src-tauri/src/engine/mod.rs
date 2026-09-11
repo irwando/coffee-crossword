@@ -24,6 +24,18 @@ pub mod mod_pub {
     pub use super::{search_words, validate_pattern, describe_pattern, normalize};
 }
 
+/// Fold accented letters in a pattern string once, before parsing — the same
+/// "pre-processing step" pattern already used for macro expansion (`@`/`#`).
+/// Keeps `parser.rs`/`ast.rs`/`matcher.rs` unaware fold-accents exists at all;
+/// they just match whatever characters the (possibly folded) pattern has.
+fn fold_pattern(pattern: &str, fold_accents_mode: bool) -> std::borrow::Cow<'_, str> {
+    if fold_accents_mode {
+        std::borrow::Cow::Owned(normalize::fold_accents(pattern))
+    } else {
+        std::borrow::Cow::Borrowed(pattern)
+    }
+}
+
 /// Search a word list using a pattern string.
 /// Handles all pattern types including logical operations.
 /// This is the main entry point for plain-text word lists and tests.
@@ -33,9 +45,11 @@ pub fn search_words(
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
+    fold_accents_mode: bool,
 ) -> Vec<MatchGroup> {
-    match parser::parse_logical(pattern) {
-        Some(expr) => grouping::search(words, &expr, min_len, max_len, normalize_mode),
+    let pattern = fold_pattern(pattern, fold_accents_mode);
+    match parser::parse_logical(&pattern) {
+        Some(expr) => grouping::search(words, &expr, min_len, max_len, normalize_mode, fold_accents_mode),
         None => Vec::new(),
     }
 }
@@ -49,13 +63,15 @@ pub fn search_cache(
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
+    fold_accents_mode: bool,
 ) -> Vec<MatchGroup> {
-    let expr = match parser::parse_logical(pattern) {
+    let pattern = fold_pattern(pattern, fold_accents_mode);
+    let expr = match parser::parse_logical(&pattern) {
         Some(e) => e,
         None => return Vec::new(),
     };
 
-    grouping::search_cache(cache, &expr, min_len, max_len, normalize_mode)
+    grouping::search_cache(cache, &expr, min_len, max_len, normalize_mode, fold_accents_mode)
 }
 
 /// Streaming + cancellable variant for the Tauri search command.
@@ -72,6 +88,7 @@ pub(crate) fn search_cache_cancellable_streaming<F>(
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
+    fold_accents_mode: bool,
     cancel: &std::sync::atomic::AtomicBool,
     max_results: usize,
     on_batch: F,
@@ -79,11 +96,12 @@ pub(crate) fn search_cache_cancellable_streaming<F>(
 where
     F: Fn(Vec<MatchGroup>),
 {
-    let expr = match parser::parse_logical(pattern) {
+    let pattern = fold_pattern(pattern, fold_accents_mode);
+    let expr = match parser::parse_logical(&pattern) {
         Some(e) => e,
         None => return (Vec::new(), false),
     };
-    grouping::search_cache_streaming(cache, &expr, min_len, max_len, normalize_mode, cancel, max_results, on_batch)
+    grouping::search_cache_streaming(cache, &expr, min_len, max_len, normalize_mode, fold_accents_mode, cancel, max_results, on_batch)
 }
 
 

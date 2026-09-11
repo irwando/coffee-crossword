@@ -3,16 +3,15 @@
 ## Engine public API (stable)
 
 ```rust
-// Existing — unchanged
-pub fn search_words(words: &[String], pattern: &str,
-                    min_len: usize, max_len: usize, normalize: bool) -> Vec<MatchGroup>
+pub fn search_words(words: &[String], pattern: &str, min_len: usize, max_len: usize,
+                    normalize: bool, fold_accents: bool) -> Vec<MatchGroup>
 pub fn validate_pattern(pattern: &str) -> Result<(), String>
 pub fn describe_pattern(pattern: &str) -> Option<String>
 pub fn normalize(word: &str) -> String
 
 // Cache-backed entry point
-pub fn search_cache(cache: &CacheHandle, pattern: &str,
-                    min_len: usize, max_len: usize, normalize: bool) -> Vec<MatchGroup>
+pub fn search_cache(cache: &CacheHandle, pattern: &str, min_len: usize, max_len: usize,
+                    normalize: bool, fold_accents: bool) -> Vec<MatchGroup>
 
 pub struct MatchGroup {
     pub normalized: String,
@@ -21,13 +20,17 @@ pub struct MatchGroup {
 }
 ```
 
+`fold_accents` folds accented letters to their plain equivalents before
+matching (`andre` matches `André`) — see `implementation-notes.md` for how it
+interacts with the `.tsc` cache format.
+
 ---
 
 ## Tauri commands
 
 | Command | Purpose |
 |---|---|
-| `search` | Run pattern against all active lists; streams events. Params: `pattern`, `minLen`, `maxLen`, `normalize`, `timeoutSecs`, `maxResults` (0 = unlimited) |
+| `search` | Run pattern against all active lists; streams events. Params: `pattern`, `minLen`, `maxLen`, `normalize`, `foldAccents`, `timeoutSecs`, `maxResults` (0 = unlimited) |
 | `cancel_search` | Set the shared cancel flag for the currently-running search |
 | `describe_pattern` | Return human-readable pattern description |
 | `validate_pattern` | Validate pattern syntax |
@@ -82,6 +85,7 @@ ccli [OPTIONS] "<pattern>"
 | `--maxlen N` | 50 | Maximum word length |
 | `--dict PATH` | (repeatable) | Dictionary file(s); if none given, scans `dictionaries/` folder |
 | `--normalize <true\|false>` | true | Strip punctuation before matching (e.g. --normalize false) |
+| `--fold-accents <true\|false>` | false | Fold accented letters to plain equivalents, e.g. "andre" matches "André" (e.g. --fold-accents true) |
 | `--balances` | off | Show anagram balances after results |
 | `--format plain\|json\|tsv` | plain | Output format |
 | `--quiet` | off | Results only, no summary line |

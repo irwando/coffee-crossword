@@ -3,23 +3,29 @@
 // key, and deduplicates variants.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::engine::ast::{LogicalExpr, MatchGroup};
 use crate::engine::matcher::eval_expr;
-use crate::engine::normalize::matching_form;
+use crate::engine::normalize::{fold_accents, matching_form};
 
-/// Matching form for one cache entry. `entry.norm` is already lowercased and
-/// letter/digit-only at build time (see `cache::normalize_word`), so the
-/// normalize=true case borrows it with zero allocation. normalize=false needs
-/// one allocation (`orig` isn't guaranteed lowercase); raw and normalized use
-/// the same value in that mode, matching the previous `matching_form(_, false)`
-/// behavior (a plain lowercase, punctuation stripped later by anagram matching).
-fn candidate_word<'a>(entry: &crate::cache::CacheEntry<'a>, normalize_mode: bool) -> Cow<'a, str> {
-    if normalize_mode {
-        Cow::Borrowed(entry.norm)
-    } else {
-        Cow::Owned(entry.orig.to_lowercase())
+/// Matching form for one cache entry. Three of the four (normalize, fold)
+/// combinations are zero-alloc borrows straight from precomputed cache
+/// fields (`cache.rs` builds `norm`, `orig_lower`, and `fold` — the
+/// accent-folded `norm` — once per list build, not once per search).
+/// `normalize=false` + fold-accents-on is the one allocating combination
+/// left: it's the narrowest of the four (normalize=off is already a niche
+/// punctuation-sensitive mode), so a 5th precomputed field wasn't worth it.
+fn candidate_word<'a>(
+    entry: &crate::cache::CacheEntry<'a>,
+    normalize_mode: bool,
+    fold_accents_mode: bool,
+) -> Cow<'a, str> {
+    match (normalize_mode, fold_accents_mode) {
+        (true, true) => Cow::Borrowed(entry.fold),
+        (true, false) => Cow::Borrowed(entry.norm),
+        (false, false) => Cow::Borrowed(entry.orig_lower),
+        (false, true) => Cow::Owned(fold_accents(entry.orig_lower)),
     }
 }
 
@@ -39,12 +45,13 @@ pub(crate) fn search(
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
+    fold_accents_mode: bool,
 ) -> Vec<MatchGroup> {
     let mut raw: Vec<RawMatch> = Vec::new();
 
     for word in words {
-        let norm_word = matching_form(word, normalize_mode);
-        let raw_word = word.to_lowercase();
+        let norm_word = matching_form(word, normalize_mode, fold_accents_mode);
+        let raw_word = if fold_accents_mode { fold_accents(&word.to_lowercase()) } else { word.to_lowercase() };
         let word_len = norm_word.chars().count();
 
         if word_len < min_len || word_len > max_len {
@@ -73,9 +80,10 @@ pub(crate) fn search_cache(
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
+    fold_accents_mode: bool,
 ) -> Vec<MatchGroup> {
     static NEVER_CANCEL: AtomicBool = AtomicBool::new(false);
-    search_cache_inner(cache, expr, min_len, max_len, normalize_mode, &NEVER_CANCEL)
+    search_cache_inner(cache, expr, min_len, max_len, normalize_mode, fold_accents_mode, &NEVER_CANCEL)
 }
 
 
@@ -101,6 +109,7 @@ pub(crate) fn search_cache_streaming<F>(
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
+    fold_accents_mode: bool,
     cancel: &AtomicBool,
     max_results: usize,
     on_batch: F,
@@ -108,9 +117,10 @@ pub(crate) fn search_cache_streaming<F>(
 where
     F: Fn(Vec<MatchGroup>),
 {
-    let mut all_raw: Vec<RawMatch> = Vec::new();
+    let mut builder = GroupBuilder::new();
     let mut entry_count: u32 = 0;
     let mut total_matches: usize = 0;
+    let mut since_flush: usize = 0;
     let mut truncated = false;
 
     'outer: for len in min_len..=max_len.min(255) {
@@ -119,8 +129,6 @@ where
             continue;
         }
 
-        let mut bucket_raw: Vec<RawMatch> = Vec::new();
-
         for i in start..end {
             entry_count = entry_count.wrapping_add(1);
             if entry_count & 0x1FFF == 0 && cancel.load(Ordering::Relaxed) {
@@ -128,7 +136,7 @@ where
             }
 
             let entry = cache.get_entry(i);
-            let word = candidate_word(&entry, normalize_mode);
+            let word = candidate_word(&entry, normalize_mode, fold_accents_mode);
 
             let word_len = word.chars().count();
             if word_len < min_len || word_len > max_len {
@@ -136,25 +144,22 @@ where
             }
 
             if let Some(balance_str) = eval_expr(&word, &word, word_len, expr) {
-                let raw_match = RawMatch {
-                    original: entry.orig.to_string(),
-                    normalized_key: word.into_owned(),
-                    balance: if balance_str.is_empty() { None } else { Some(balance_str) },
-                };
-                bucket_raw.push(raw_match.clone());
-                all_raw.push(raw_match);
+                let balance = if balance_str.is_empty() { None } else { Some(balance_str) };
+                builder.insert(entry.orig, word.into_owned(), balance);
                 total_matches += 1;
+                since_flush += 1;
 
                 // Flush to frontend when we hit the per-batch cap.
-                if bucket_raw.len() >= MAX_BATCH_SIZE {
-                    on_batch(build_groups(std::mem::take(&mut bucket_raw)));
+                if since_flush >= MAX_BATCH_SIZE {
+                    on_batch(builder.drain_batch());
+                    since_flush = 0;
                 }
 
                 // Stop collecting once the result cap is reached.
                 if max_results > 0 && total_matches >= max_results {
                     truncated = true;
-                    if !bucket_raw.is_empty() {
-                        on_batch(build_groups(std::mem::take(&mut bucket_raw)));
+                    if since_flush > 0 {
+                        on_batch(builder.drain_batch());
                     }
                     break 'outer;
                 }
@@ -162,12 +167,13 @@ where
         }
 
         // End of bucket — flush any remaining entries.
-        if !bucket_raw.is_empty() {
-            on_batch(build_groups(bucket_raw));
+        if since_flush > 0 {
+            on_batch(builder.drain_batch());
+            since_flush = 0;
         }
     }
 
-    (build_groups(all_raw), truncated)
+    (builder.finish(), truncated)
 }
 
 fn search_cache_inner(
@@ -176,6 +182,7 @@ fn search_cache_inner(
     min_len: usize,
     max_len: usize,
     normalize_mode: bool,
+    fold_accents_mode: bool,
     cancel: &AtomicBool,
 ) -> Vec<MatchGroup> {
     let mut raw: Vec<RawMatch> = Vec::new();
@@ -195,7 +202,7 @@ fn search_cache_inner(
             }
 
             let entry = cache.get_entry(i);
-            let word = candidate_word(&entry, normalize_mode);
+            let word = candidate_word(&entry, normalize_mode, fold_accents_mode);
 
             let word_len = word.chars().count();
             if word_len < min_len || word_len > max_len {
@@ -217,47 +224,94 @@ fn search_cache_inner(
 
 /// Group raw matches by normalized key, collecting variants.
 fn build_groups(raw: Vec<RawMatch>) -> Vec<MatchGroup> {
-    let mut group_order: Vec<String> = Vec::new();
-    let mut groups: HashMap<String, MatchGroup> = HashMap::new();
+    let mut builder = GroupBuilder::new();
+    for m in raw {
+        builder.insert(&m.original, m.normalized_key, m.balance);
+    }
+    builder.finish()
+}
 
-    for raw_match in raw {
-        let key = raw_match.normalized_key.clone();
+/// Incrementally groups matches by normalized key as they're found, merging
+/// variants into the same `MatchGroup` in one pass. `build_groups` is a thin
+/// wrapper over this for the single-shot (`search`/`search_cache_inner`)
+/// callers; `search_cache_streaming` uses it directly so the whole result set
+/// is only grouped once — not once per streamed batch and again in full at
+/// the end (which also required cloning every match to keep two parallel
+/// accumulations).
+struct GroupBuilder {
+    order: Vec<String>,
+    groups: HashMap<String, MatchGroup>,
+    /// Keys touched since the last `drain_batch()` call, in touch order
+    /// (may contain duplicates — deduplicated when drained).
+    dirty_since_flush: Vec<String>,
+}
 
-        if let Some(group) = groups.get_mut(&key) {
-            let original_lower = raw_match.original.to_ascii_lowercase();
-            if original_lower != key {
-                group.variants.push(raw_match.original);
-            }
-        } else {
-            group_order.push(key.clone());
-            let original_lower = raw_match.original.to_ascii_lowercase();
-            let variants = if original_lower != key {
-                vec![raw_match.original]
-            } else {
-                vec![]
-            };
-            groups.insert(
-                key.clone(),
-                MatchGroup {
-                    normalized: key,
-                    variants,
-                    balance: raw_match.balance,
-                },
-            );
-        }
+impl GroupBuilder {
+    fn new() -> Self {
+        GroupBuilder { order: Vec::new(), groups: HashMap::new(), dirty_since_flush: Vec::new() }
     }
 
-    let mut result: Vec<MatchGroup> = group_order
-        .into_iter()
-        .filter_map(|k| groups.remove(&k))
-        .collect();
+    /// Merge one match into its group, creating the group on first sight.
+    /// `original` is only ever copied into an owned `String` when it's
+    /// actually a case/diacritic variant worth recording — not for every
+    /// match, unlike storing it in an intermediate struct up front would.
+    fn insert(&mut self, original: &str, normalized_key: String, balance: Option<String>) {
+        let original_lower = original.to_ascii_lowercase();
+        match self.groups.get_mut(&normalized_key) {
+            Some(group) => {
+                if original_lower != normalized_key {
+                    group.variants.push(original.to_string());
+                }
+            }
+            None => {
+                self.order.push(normalized_key.clone());
+                let variants = if original_lower != normalized_key {
+                    vec![original.to_string()]
+                } else {
+                    vec![]
+                };
+                self.groups.insert(
+                    normalized_key.clone(),
+                    MatchGroup { normalized: normalized_key.clone(), variants, balance },
+                );
+            }
+        }
+        self.dirty_since_flush.push(normalized_key);
+    }
 
-    result.sort_by(|a, b| {
-        a.normalized
-            .len()
-            .cmp(&b.normalized.len())
-            .then(a.normalized.cmp(&b.normalized))
-    });
+    /// Groups touched since the last call, deduplicated, in their current
+    /// (possibly variant-updated) state — for a streaming partial batch.
+    fn drain_batch(&mut self) -> Vec<MatchGroup> {
+        let dirty = std::mem::take(&mut self.dirty_since_flush);
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut out = Vec::new();
+        for key in dirty {
+            if seen.insert(key.clone()) {
+                if let Some(group) = self.groups.get(&key) {
+                    out.push(group.clone());
+                }
+            }
+        }
+        out
+    }
 
-    result
+    /// Final, length-then-normalized-sorted result. Consumes the builder —
+    /// no separate re-grouping pass over raw matches needed.
+    fn finish(self) -> Vec<MatchGroup> {
+        let mut groups = self.groups;
+        let mut result: Vec<MatchGroup> = self
+            .order
+            .into_iter()
+            .filter_map(|k| groups.remove(&k))
+            .collect();
+
+        result.sort_by(|a, b| {
+            a.normalized
+                .len()
+                .cmp(&b.normalized.len())
+                .then(a.normalized.cmp(&b.normalized))
+        });
+
+        result
+    }
 }

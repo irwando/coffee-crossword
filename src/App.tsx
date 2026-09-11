@@ -68,6 +68,7 @@ const MAX_HISTORY = 100;
 
 const DEFAULTS = {
   normalize: true,
+  foldAccents: false,
   variantMode: "show" as VariantMode,
   viewMode: "list" as ViewMode,
   minLen: 1,
@@ -305,6 +306,7 @@ export default function App() {
 
   // ── Settings ──────────────────────────────────────────────────────────
   const [normalize, setNormalize] = useState(DEFAULTS.normalize);
+  const [foldAccents, setFoldAccents] = useState(DEFAULTS.foldAccents);
   const [variantMode, setVariantMode] = useState<VariantMode>(DEFAULTS.variantMode);
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULTS.viewMode);
   const [minLen, setMinLen] = useState(DEFAULTS.minLen);
@@ -354,6 +356,7 @@ export default function App() {
       storeRef.current = store;
       Promise.all([
         store.get<boolean>("normalize"),
+        store.get<boolean>("foldAccents"),
         store.get<VariantMode>("variantMode"),
         store.get<ViewMode>("viewMode"),
         store.get<number>("minLen"),
@@ -370,9 +373,10 @@ export default function App() {
         store.get<number>("searchTimeout"),
         store.get<number>("refColWidth"),
         store.get<number>("maxResults"),
-      ]).then(([n, vm, view, min, max, ref_, desc, opts, app_, hist,
+      ]).then(([n, fold, vm, view, min, max, ref_, desc, opts, app_, hist,
                 activeIds, displayNames, dedup, layout, timeout_, refW, maxRes]) => {
         if (n !== null && n !== undefined) setNormalize(n);
+        if (fold !== null && fold !== undefined) setFoldAccents(fold);
         if (vm) setVariantMode(vm);
         if (view) setViewMode(view);
         if (min !== null && min !== undefined) setMinLen(min);
@@ -448,6 +452,7 @@ export default function App() {
     if (!settingsLoaded.current || !storeRef.current) return;
     const s = storeRef.current;
     s.set("normalize", normalize);
+    s.set("foldAccents", foldAccents);
     s.set("variantMode", variantMode);
     s.set("viewMode", viewMode);
     s.set("minLen", minLen);
@@ -460,7 +465,7 @@ export default function App() {
     s.set("searchTimeout", searchTimeout);
     s.set("refColWidth", refColWidth);
     s.set("maxResults", maxResults);
-  }, [normalize, variantMode, viewMode, minLen, maxLen, maxResults, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
+  }, [normalize, foldAccents, variantMode, viewMode, minLen, maxLen, maxResults, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
 
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
@@ -645,6 +650,7 @@ export default function App() {
       setShowDescription(DEFAULTS.showDescription);
       setShowOptions(DEFAULTS.showOptions);
       setNormalize(DEFAULTS.normalize);
+      setFoldAccents(DEFAULTS.foldAccents);
       setVariantMode(DEFAULTS.variantMode);
       setViewMode(DEFAULTS.viewMode);
       setMinLen(DEFAULTS.minLen);
@@ -713,7 +719,7 @@ export default function App() {
     }
 
     try {
-      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize, timeoutSecs: searchTimeout, maxResults });
+      await invoke("search", { pattern: trimmed, minLen, maxLen, normalize, foldAccents, timeoutSecs: searchTimeout, maxResults });
       // Results arrive via events (search:start, search:list-result, search:complete).
       // Update history after issuing the search.
       setHistory((prev) => {
@@ -725,7 +731,7 @@ export default function App() {
       setStatusMsg(`Error: ${err}`);
       setIsSearching(false);
     }
-  }, [pattern, minLen, maxLen, maxResults, normalize, searchTimeout, listsLoading, buildInProgress]);
+  }, [pattern, minLen, maxLen, maxResults, normalize, foldAccents, searchTimeout, listsLoading, buildInProgress]);
 
   const doCancel = useCallback(async () => {
     await invoke("cancel_search");
@@ -985,6 +991,16 @@ export default function App() {
                 <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${normalize ? "translate-x-4" : "translate-x-0.5"}`} />
               </div>
               <span className="text-xs text-gray-600 dark:text-gray-400">Normalize</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none" title='Match accented letters as plain equivalents, e.g. "andre" matches "André"'>
+              <div
+                onClick={() => setFoldAccents(!foldAccents)}
+                className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${foldAccents ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`}
+              >
+                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${foldAccents ? "translate-x-4" : "translate-x-0.5"}`} />
+              </div>
+              <span className="text-xs text-gray-600 dark:text-gray-400">Fold accents</span>
             </label>
 
             {normalize && (

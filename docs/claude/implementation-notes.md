@@ -141,11 +141,37 @@ not just per match, so they scale with dictionary size, not result count):
   `HashMap<u8, char>`, so backtracking clones (`*ctx` instead of `ctx.clone()`)
   are a stack copy instead of a heap allocation.
 
-Deferred (same class of issue, not yet fixed): `search_cache_streaming` builds
-`MatchGroup`s once per batch and again over the full result set at the end,
-and clones each `RawMatch` twice; anagram matching (`matches_anagram_exact`/
-`matches_anagram_within`) still uses `HashMap<char, i32>` per candidate instead
-of a fixed-size array.
+Also fixed, same class of issue:
+- `search_cache_streaming` previously built `MatchGroup`s once per batch and
+  again over the full result set at the end, cloning each `RawMatch` twice to
+  keep two parallel accumulations. `GroupBuilder` (`grouping.rs`) now groups
+  incrementally in one pass; `drain_batch()` returns a streaming snapshot,
+  `finish()` returns the final sorted result with no re-grouping needed.
+- Anagram matching (`matches_anagram_exact`/`matches_anagram_within`/
+  `matches_subpattern_anagram`) used a `HashMap<char, i32>` per candidate.
+  `CharCounts` (`matcher.rs`) replaces it with a fixed `[i32; 36]` array for
+  a-z/0-9 (the common case, zero-alloc) with a small `Vec` fallback for any
+  other Unicode character — a hard-coded ASCII-only array would silently
+  miscount accented letters, which real lists (Wikipedia titles) do contain.
+
+## Accent folding (fold-accents option)
+`normalize()` only lowercases and strips punctuation — `é` and `e` are
+different characters to it, so `andre` never matched `André`. Fold-accents is
+a separate, opt-in toggle (default off) that additionally strips Unicode
+combining diacritical marks (NFD decomposition + filter U+0300–U+036F).
+
+Applied at two points, both mirroring existing patterns rather than touching
+the matcher:
+- **The pattern string** is folded once before parsing (`fold_pattern()` in
+  `engine/mod.rs`) — the same pre-processing-step pattern already used for
+  macro expansion. `parser.rs`/`ast.rs`/`matcher.rs` have no idea fold-accents
+  exists; they just match whatever characters the (possibly folded) pattern
+  and word have.
+- **The candidate word** — precomputed at cache-build time as a 4th `.tsc`
+  field (`fold`) for the zero-alloc `normalize=on` path, since folding is
+  applied per *scanned candidate* on every search rather than once. See
+  `word-lists.md`'s "Binary cache format" section for the full field layout
+  and format-version/rebuild-detection design.
 
 ## Results rendering performance
 `ResultsColumn.tsx`'s `GridView`/`ListView` are virtualized with

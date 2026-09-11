@@ -1,25 +1,35 @@
 // ── Cache ─────────────────────────────────────────────────────────────────────
 // Builds and reads .tsc binary cache files from .txt word list sources.
 //
-// The .tsc format stores three parallel string arrays (original, normalized,
-// sort-key) sorted by normalized length, with a length-bucket index for fast
-// skip-to-length access. The file is memory-mapped so only accessed pages are
-// loaded by the OS — critical for the 125MB Wikipedia list.
+// The .tsc format stores four parallel string arrays (original, lowercase
+// original, normalized, accent-folded-normalized) sorted by normalized length,
+// with a length-bucket index for fast skip-to-length access. The file is
+// memory-mapped so only accessed pages are loaded by the OS — critical for
+// the 125MB Wikipedia list.
 //
-// Cache invalidation: the header stores the source .txt mtime at build time.
-// On load we compare against the current .txt mtime; mismatch → NeedsRebuild.
+// Cache invalidation: the header stores the source .txt mtime and a format
+// version at build time. On load we compare mtime against the current .txt
+// mtime, and version against CURRENT_FORMAT_VERSION; either mismatch →
+// NeedsRebuild. Every .tsc built before the format-version field existed has
+// those header bytes zero-filled, so it reads back as version 0 and is
+// correctly flagged as needing a rebuild with no special-case migration code.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use memmap2::Mmap;
+use unicode_normalization::UnicodeNormalization;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const MAGIC: &[u8; 4] = b"TSC1";
 const HEADER_SIZE: usize = 832;
 const LENGTH_INDEX_SIZE: usize = 1024; // 256 × u32
+
+/// Bumped whenever the binary .tsc layout changes. Stored in the header;
+/// any mismatch on load (in either direction) forces a rebuild.
+const CURRENT_FORMAT_VERSION: u32 = 2;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -45,8 +55,12 @@ pub struct BuildStats {
 #[derive(Debug, Clone)]
 pub struct CacheEntry<'a> {
     pub orig: &'a str,
+    /// Lowercase of `orig`, punctuation preserved — the `normalize=off` form,
+    /// precomputed so that mode is zero-alloc at query time too.
+    pub orig_lower: &'a str,
     pub norm: &'a str,
-    pub sort_key: &'a str,
+    /// Accent-folded `norm` — the `normalize=on` + fold-accents-on form.
+    pub fold: &'a str,
 }
 
 /// Handle to an open memory-mapped .tsc file.
@@ -63,17 +77,19 @@ pub struct CacheHandle {
     pub source_updated: String,
     pub source_desc: String,
 
-    // Offsets within the mmap for the three string sections.
+    // Offsets within the mmap for the four string sections.
     // Retained for future direct-section scanning; not yet read after construction.
     #[allow(dead_code)]
     orig_base: usize,
     #[allow(dead_code)]
+    orig_lower_base: usize,
+    #[allow(dead_code)]
     norm_base: usize,
     #[allow(dead_code)]
-    sort_base: usize,
+    fold_base: usize,
 
-    // Entry index: triples of (orig_offset, norm_offset, sort_offset) as u32.
-    // Starts at HEADER_SIZE + LENGTH_INDEX_SIZE.
+    // Entry index: quadruples of (orig_offset, orig_lower_offset, norm_offset,
+    // fold_offset) as u32. Starts at HEADER_SIZE + LENGTH_INDEX_SIZE.
     entry_index_base: usize,
 
     // norm_length_offsets[n] = first entry index for normalized length n.
@@ -146,6 +162,15 @@ pub fn normalize_word(s: &str) -> String {
         .collect()
 }
 
+/// Fold accented letters to their plain equivalents (e.g. "café" -> "cafe")
+/// via Unicode NFD decomposition + stripping combining marks (U+0300-U+036F).
+/// Length-preserving for the common case (one precomposed accented letter ->
+/// one base letter). Duplicated from `engine::normalize::fold_accents` — see
+/// that function's doc comment for why (`cache.rs` must stay engine-free).
+fn fold_accents(s: &str) -> String {
+    s.nfd().filter(|c| !('\u{0300}'..='\u{036f}').contains(c)).collect()
+}
+
 /// Compute the sort key: normalized letters sorted A–Z (for anagram lookup).
 fn sort_key(norm: &str) -> String {
     let mut chars: Vec<char> = norm.chars().collect();
@@ -206,9 +231,13 @@ pub fn build_cache(
     progress(8, "indexing");
 
     // Collect entries: skip blank lines and # comments.
+    // `sort` is only used to order entries within a length bucket below (for
+    // cache-friendly anagram scanning) — it's never persisted to the file.
     struct Entry {
         orig: String,
+        orig_lower: String,
         norm: String,
+        fold: String,
         sort: String,
     }
 
@@ -239,10 +268,14 @@ pub fn build_cache(
             continue;
         }
         let sort = sort_key(&norm);
+        let orig_lower = headword.to_lowercase();
+        let fold = fold_accents(&norm);
 
         entries.push(Entry {
             orig: headword.to_string(),
+            orig_lower,
             norm,
+            fold,
             sort,
         });
 
@@ -288,26 +321,31 @@ pub fn build_cache(
 
     // Serialize string sections and build per-entry offsets.
     let mut orig_strings: Vec<u8> = Vec::new();
+    let mut orig_lower_strings: Vec<u8> = Vec::new();
     let mut norm_strings: Vec<u8> = Vec::new();
-    let mut sort_strings: Vec<u8> = Vec::new();
+    let mut fold_strings: Vec<u8> = Vec::new();
 
-    // entry_offsets: (orig_offset, norm_offset, sort_offset) per entry
-    let mut entry_offsets: Vec<(u32, u32, u32)> = Vec::with_capacity(entry_count);
+    // entry_offsets: (orig_offset, orig_lower_offset, norm_offset, fold_offset) per entry
+    let mut entry_offsets: Vec<(u32, u32, u32, u32)> = Vec::with_capacity(entry_count);
 
     for (i, e) in entries.iter().enumerate() {
         let orig_off = orig_strings.len() as u32;
         orig_strings.extend_from_slice(e.orig.as_bytes());
         orig_strings.push(0);
 
+        let orig_lower_off = orig_lower_strings.len() as u32;
+        orig_lower_strings.extend_from_slice(e.orig_lower.as_bytes());
+        orig_lower_strings.push(0);
+
         let norm_off = norm_strings.len() as u32;
         norm_strings.extend_from_slice(e.norm.as_bytes());
         norm_strings.push(0);
 
-        let sort_off = sort_strings.len() as u32;
-        sort_strings.extend_from_slice(e.sort.as_bytes());
-        sort_strings.push(0);
+        let fold_off = fold_strings.len() as u32;
+        fold_strings.extend_from_slice(e.fold.as_bytes());
+        fold_strings.push(0);
 
-        entry_offsets.push((orig_off, norm_off, sort_off));
+        entry_offsets.push((orig_off, orig_lower_off, norm_off, fold_off));
 
         if i % 200_000 == 0 && entry_count > 0 {
             let pct = 70 + (i * 25 / entry_count.max(1)) as u8;
@@ -316,24 +354,26 @@ pub fn build_cache(
     }
 
     // data_offset: byte position of string data section (after header + length index + entry index)
-    let entry_index_size = entry_count * 12; // 3 × u32 per entry
+    let entry_index_size = entry_count * 16; // 4 × u32 per entry
     let data_offset =
         (HEADER_SIZE + LENGTH_INDEX_SIZE + entry_index_size) as u32;
 
-    // String sections are laid out: orig_strings | norm_strings | sort_strings.
-    // Norm and sort base offsets are relative to data_offset.
+    // String sections are laid out: orig_strings | orig_lower_strings | norm_strings | fold_strings.
+    // Base offsets are relative to data_offset.
     // Rebuild entry_offsets to be absolute file offsets.
     let orig_section_start = data_offset;
-    let norm_section_start = orig_section_start + orig_strings.len() as u32;
-    let sort_section_start = norm_section_start + norm_strings.len() as u32;
+    let orig_lower_section_start = orig_section_start + orig_strings.len() as u32;
+    let norm_section_start = orig_lower_section_start + orig_lower_strings.len() as u32;
+    let fold_section_start = norm_section_start + norm_strings.len() as u32;
 
     // ── Assemble file ────────────────────────────────────────────────────────
 
     let mut file_buf: Vec<u8> = Vec::with_capacity(
         HEADER_SIZE + LENGTH_INDEX_SIZE + entry_index_size
             + orig_strings.len()
+            + orig_lower_strings.len()
             + norm_strings.len()
-            + sort_strings.len(),
+            + fold_strings.len(),
     );
 
     // Header (832 bytes)
@@ -344,7 +384,8 @@ pub fn build_cache(
     write_fixed(&mut file_buf, &display_name, 256);             // [20..276]
     write_fixed(&mut file_buf, &source_updated, 32);            // [276..308]
     write_fixed(&mut file_buf, &source_desc, 512);              // [308..820]
-    file_buf.extend_from_slice(&[0u8; 12]);                     // [820..832] reserved
+    file_buf.extend_from_slice(&CURRENT_FORMAT_VERSION.to_le_bytes()); // [820..824] format_version
+    file_buf.extend_from_slice(&[0u8; 8]);                      // [824..832] reserved
 
     debug_assert_eq!(file_buf.len(), HEADER_SIZE);
 
@@ -355,21 +396,24 @@ pub fn build_cache(
 
     debug_assert_eq!(file_buf.len(), HEADER_SIZE + LENGTH_INDEX_SIZE);
 
-    // Entry index (entry_count × 12 bytes)
-    for (_i, (orig_off, norm_off, sort_off)) in entry_offsets.iter().enumerate() {
+    // Entry index (entry_count × 16 bytes)
+    for &(orig_off, orig_lower_off, norm_off, fold_off) in &entry_offsets {
         // Offsets stored as absolute file positions.
         let abs_orig = orig_section_start + orig_off;
+        let abs_orig_lower = orig_lower_section_start + orig_lower_off;
         let abs_norm = norm_section_start + norm_off;
-        let abs_sort = sort_section_start + sort_off;
+        let abs_fold = fold_section_start + fold_off;
         file_buf.extend_from_slice(&abs_orig.to_le_bytes());
+        file_buf.extend_from_slice(&abs_orig_lower.to_le_bytes());
         file_buf.extend_from_slice(&abs_norm.to_le_bytes());
-        file_buf.extend_from_slice(&abs_sort.to_le_bytes());
+        file_buf.extend_from_slice(&abs_fold.to_le_bytes());
     }
 
     // String data
     file_buf.extend_from_slice(&orig_strings);
+    file_buf.extend_from_slice(&orig_lower_strings);
     file_buf.extend_from_slice(&norm_strings);
-    file_buf.extend_from_slice(&sort_strings);
+    file_buf.extend_from_slice(&fold_strings);
 
     progress(97, "writing");
 
@@ -398,10 +442,11 @@ pub fn cache_validity(txt_path: &Path, tsc_path: &Path) -> CacheValidity {
         return CacheValidity::NotBuilt;
     }
 
-    // Read only the first 12 bytes (magic + source_mtime). Avoids reading the
-    // entire file — critical for large caches (e.g. 428 MB Wikipedia .tsc).
+    // Read only the first 824 bytes (magic + source_mtime + ... + format
+    // version). Avoids reading the entire file — critical for large caches
+    // (e.g. 428 MB Wikipedia .tsc).
     use std::io::Read;
-    let mut header_bytes = [0u8; 12];
+    let mut header_bytes = [0u8; 824];
     let ok = fs::File::open(tsc_path)
         .ok()
         .and_then(|mut f| f.read_exact(&mut header_bytes).ok())
@@ -412,6 +457,11 @@ pub fn cache_validity(txt_path: &Path, tsc_path: &Path) -> CacheValidity {
 
     if &header_bytes[0..4] != MAGIC {
         return CacheValidity::NotBuilt;
+    }
+
+    let stored_version = u32::from_le_bytes(header_bytes[820..824].try_into().unwrap());
+    if stored_version != CURRENT_FORMAT_VERSION {
+        return CacheValidity::NeedsRebuild;
     }
 
     let stored_mtime = u64::from_le_bytes(header_bytes[4..12].try_into().unwrap_or([0u8; 8]));
@@ -460,24 +510,25 @@ pub fn open_cache(tsc_path: &Path) -> Result<CacheHandle, String> {
     }
 
     let entry_index_base = HEADER_SIZE + LENGTH_INDEX_SIZE;
-    let entry_index_end = entry_index_base + entry_count * 12;
+    let entry_index_end = entry_index_base + entry_count * 16;
 
     if len < entry_index_end {
         return Err(format!("Cache file {:?} truncated at entry index", tsc_path));
     }
 
-    // The three string sections start at data_offset and are laid out:
-    //   orig_strings | norm_strings | sort_strings
+    // The four string sections start at data_offset and are laid out:
+    //   orig_strings | orig_lower_strings | norm_strings | fold_strings
     // We derive base offsets by reading the first entry's offsets.
     // (If entry_count == 0 these are unused, set to data_offset.)
-    let (orig_base, norm_base, sort_base) = if entry_count > 0 {
+    let (orig_base, orig_lower_base, norm_base, fold_base) = if entry_count > 0 {
         let e0 = entry_index_base;
         let orig = u32::from_le_bytes(bytes[e0..e0 + 4].try_into().unwrap()) as usize;
-        let norm = u32::from_le_bytes(bytes[e0 + 4..e0 + 8].try_into().unwrap()) as usize;
-        let sort = u32::from_le_bytes(bytes[e0 + 8..e0 + 12].try_into().unwrap()) as usize;
-        (orig, norm, sort)
+        let orig_lower = u32::from_le_bytes(bytes[e0 + 4..e0 + 8].try_into().unwrap()) as usize;
+        let norm = u32::from_le_bytes(bytes[e0 + 8..e0 + 12].try_into().unwrap()) as usize;
+        let fold = u32::from_le_bytes(bytes[e0 + 12..e0 + 16].try_into().unwrap()) as usize;
+        (orig, orig_lower, norm, fold)
     } else {
-        (data_offset, data_offset, data_offset)
+        (data_offset, data_offset, data_offset, data_offset)
     };
 
     let data_ptr = mmap.as_ptr();
@@ -492,8 +543,9 @@ pub fn open_cache(tsc_path: &Path) -> Result<CacheHandle, String> {
         source_updated,
         source_desc,
         orig_base,
+        orig_lower_base,
         norm_base,
-        sort_base,
+        fold_base,
         entry_index_base,
         norm_length_offsets,
     })
@@ -507,14 +559,15 @@ fn read_fixed_str(bytes: &[u8]) -> String {
 // ── CacheHandle access ────────────────────────────────────────────────────────
 
 impl CacheHandle {
-    /// Read the three string pointers for entry at index `i`.
-    fn entry_offsets(&self, i: usize) -> (usize, usize, usize) {
-        let base = self.entry_index_base + i * 12;
+    /// Read the four string pointers for entry at index `i`.
+    fn entry_offsets(&self, i: usize) -> (usize, usize, usize, usize) {
+        let base = self.entry_index_base + i * 16;
         let bytes = unsafe { std::slice::from_raw_parts(self.data, self.data_len) };
         let orig = u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap()) as usize;
-        let norm = u32::from_le_bytes(bytes[base + 4..base + 8].try_into().unwrap()) as usize;
-        let sort = u32::from_le_bytes(bytes[base + 8..base + 12].try_into().unwrap()) as usize;
-        (orig, norm, sort)
+        let orig_lower = u32::from_le_bytes(bytes[base + 4..base + 8].try_into().unwrap()) as usize;
+        let norm = u32::from_le_bytes(bytes[base + 8..base + 12].try_into().unwrap()) as usize;
+        let fold = u32::from_le_bytes(bytes[base + 12..base + 16].try_into().unwrap()) as usize;
+        (orig, orig_lower, norm, fold)
     }
 
     /// Read a null-terminated string from the mmap at byte offset `off`.
@@ -531,11 +584,12 @@ impl CacheHandle {
 
     /// Get a single entry by index.
     pub fn get_entry(&self, i: usize) -> CacheEntry<'_> {
-        let (orig_off, norm_off, sort_off) = self.entry_offsets(i);
+        let (orig_off, orig_lower_off, norm_off, fold_off) = self.entry_offsets(i);
         CacheEntry {
             orig: self.read_str(orig_off),
+            orig_lower: self.read_str(orig_lower_off),
             norm: self.read_str(norm_off),
-            sort_key: self.read_str(sort_off),
+            fold: self.read_str(fold_off),
         }
     }
 
@@ -704,14 +758,27 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_key_correct() {
+    fn test_orig_lower_preserves_punctuation() {
         let dir = TempDir::new().unwrap();
-        let txt = temp_txt(&dir, "words.txt", "canter\n");
+        let txt = temp_txt(&dir, "words.txt", "Pick-Me-Up\n");
         let tsc = txt.with_extension("tsc");
         build_cache(&txt, &tsc, |_, _| {}).unwrap();
         let handle = open_cache(&tsc).unwrap();
         let entry = handle.get_entry(0);
-        assert_eq!(entry.sort_key, "acenrt"); // sorted letters of "canter"
+        assert_eq!(entry.orig_lower, "pick-me-up");
+        assert_eq!(entry.norm, "pickmeup");
+    }
+
+    #[test]
+    fn test_fold_strips_accents() {
+        let dir = TempDir::new().unwrap();
+        let txt = temp_txt(&dir, "words.txt", "André\n");
+        let tsc = txt.with_extension("tsc");
+        build_cache(&txt, &tsc, |_, _| {}).unwrap();
+        let handle = open_cache(&tsc).unwrap();
+        let entry = handle.get_entry(0);
+        assert_eq!(entry.norm, "andré");
+        assert_eq!(entry.fold, "andre");
     }
 
     #[test]
@@ -765,6 +832,23 @@ mod tests {
         let mut bytes = fs::read(&tsc).unwrap();
         // Stored mtime at bytes [4..12] — set to 0 so txt is always newer.
         bytes[4..12].copy_from_slice(&0u64.to_le_bytes());
+        fs::write(&tsc, &bytes).unwrap();
+
+        assert_eq!(cache_validity(&txt, &tsc), CacheValidity::NeedsRebuild);
+    }
+
+    #[test]
+    fn test_cache_validity_needs_rebuild_on_stale_format_version() {
+        let dir = TempDir::new().unwrap();
+        let txt = temp_txt(&dir, "words.txt", "cat\n");
+        let tsc = txt.with_extension("tsc");
+        build_cache(&txt, &tsc, |_, _| {}).unwrap();
+
+        // A .tsc built before the format_version field existed has zeros
+        // there — simulate that (and any other future format bump) by
+        // writing a version that doesn't match CURRENT_FORMAT_VERSION.
+        let mut bytes = fs::read(&tsc).unwrap();
+        bytes[820..824].copy_from_slice(&0u32.to_le_bytes());
         fs::write(&tsc, &bytes).unwrap();
 
         assert_eq!(cache_validity(&txt, &tsc), CacheValidity::NeedsRebuild);

@@ -74,32 +74,51 @@ Header block (fixed 832 bytes):
   [20..276]  display_name: [u8; 256]   (null-padded)
   [276..308] source_updated: [u8; 32]  (null-padded)
   [308..820] source_desc: [u8; 512]    (null-padded)
-  [820..832] reserved: [u8; 12]
+  [820..824] format_version: u32       (bumped on any layout change — see below)
+  [824..832] reserved: [u8; 8]
 
 Length index (1024 bytes):
   norm_length_offsets: [u32; 256]
   (norm_length_offsets[n] = first entry index for normalized length n)
-  Entries are sorted by normalized length within the file.
+  Entries are sorted by normalized length within the file (secondarily by an
+  anagram sort-key, computed at build time for scan locality but not itself
+  persisted — see v2 note below).
 
-Entry index (entry_count × 12 bytes):
-  Per entry: orig_offset: u32, norm_offset: u32, sort_offset: u32
-  (byte offsets into the three string sections below)
+Entry index (entry_count × 16 bytes):
+  Per entry: orig_offset: u32, orig_lower_offset: u32, norm_offset: u32, fold_offset: u32
+  (byte offsets into the four string sections below)
 
 String data sections (packed null-terminated strings):
-  orig_strings:  verbatim original lines
-  norm_strings:  normalized (lowercase letters+digits only)
-  sort_strings:  normalized letters sorted A–Z (for anagram lookup)
+  orig_strings:        verbatim original lines
+  orig_lower_strings:  lowercase(orig), punctuation preserved
+  norm_strings:        normalized (lowercase letters+digits only)
+  fold_strings:        accent-folded norm (e.g. "andré" -> "andre")
 ```
 
-**Search paths:**
-- Template search (`normalize=on`): iterate `norm_strings` in target length bucket
-- Template search (`normalize=off`): iterate `orig_strings`
-- Anagram search: sort query letters → scan `sort_strings` in target length bucket
+**Search paths** (all zero-copy borrows from the mmap except one — see below):
+- `normalize=on`, fold-accents off (default): iterate `norm_strings`
+- `normalize=on`, fold-accents on: iterate `fold_strings`
+- `normalize=off`, fold-accents off: iterate `orig_lower_strings`
+- `normalize=off`, fold-accents on: iterate `orig_lower_strings`, folding each
+  candidate on the fly (the one allocating combination — `normalize=off` is
+  already the narrowest of the four modes, so a 5th on-disk field wasn't
+  worth it; see `implementation-notes.md`)
+- Anagram search: letter-set match (`CharCounts` in `matcher.rs`) against
+  whichever of the above forms the current mode selects — there's no
+  separate sort-key-based lookup path
 - Length filtering: `norm_length_offsets` gives direct jump to right bucket
+
+**Format version (v2):** `sort_key` used to be a fifth persisted field, but
+nothing ever read it after build (it only orders entries within a length
+bucket at build time) — so v2 drops it from disk and uses that slot for the
+new `fold` field instead. Every `.tsc` built before `format_version` existed
+has those header bytes zero-filled, so it reads back as version 0 and is
+automatically treated as `NeedsRebuild` — no explicit migration code needed.
+Bump `CURRENT_FORMAT_VERSION` in `cache.rs` for any future layout change.
 
 **Build time estimates:**
 - `english.txt` (101k words): ~0.3 seconds
-- `wikipedia-en.txt` (6.3M entries, 125MB): ~10–15 seconds
+- `wikipedia-en.txt` (6.3M entries, 125MB): ~5–15 seconds
 
 ---
 
@@ -110,7 +129,7 @@ Each list in the registry has one of these states:
 | State | Condition | UI |
 |---|---|---|
 | `Ready` | `.tsc` exists, source mtime ≤ cache mtime | Green dot, word count shown |
-| `NeedsRebuild` | `.tsc` exists but `.txt` is newer | Yellow dot, "Source updated" |
+| `NeedsRebuild` | `.tsc` exists but `.txt` is newer, or `.tsc`'s format_version doesn't match `CURRENT_FORMAT_VERSION` | Yellow dot, "Source updated" |
 | `NotBuilt` | `.txt` exists, no `.tsc` | Gray dot, "Index not built" |
 | `Building` | Build in progress | Spinner + progress % |
 | `Error(msg)` | Build failed | Red dot, error message |

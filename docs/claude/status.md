@@ -29,7 +29,7 @@
 - [x] Right-side sliding Word List drawer
 - [x] CLI: multi-dict, --build-cache, --no-cache, --no-dedup
 - [x] Draggable divider between stacked panes
-- [x] Column layout (side-by-side panes with layout toggle in View → Layout)
+- [x] Column layout (side-by-side panes with layout toggle in View → Window Layout)
 - [x] Draggable reference panel column in column view (resizable, persisted)
 - [x] Cancel button — Search → Cancel during active search; cancels via AtomicBool flag
 - [x] Configurable search timeout (default 30s, persisted)
@@ -43,6 +43,9 @@
 - [x] Virtualized results rendering (`@tanstack/react-virtual`) + throttled streaming accumulation — fixes large-list freeze at high `maxResults`; see `implementation-notes.md`
 - [x] Native menu checkmark sync (`sync_menu_state`) — menu checkmarks now match restored session state and actually flip on click for Description/Options
 - [x] Accent folding option (`foldAccents`) — "andre" optionally matches "André"; opt-in, default off. `.tsc` format bumped to v2 (adds precomputed `orig_lower`/`fold` fields, drops unused on-disk `sort_key`) with version-based rebuild detection; see `word-lists.md` and `implementation-notes.md`
+- [x] Word List Layout (Grid/List) and Variants (Show/Hide) moved from inline Options-row buttons to View menu; "Layout" renamed to "Window Layout" to disambiguate from the new Word List Layout
+- [x] Grid view: collapsible length-group headers (matching List view), tighter chip sizing (row height 34px → 28px; fixed CSS Grid `align-items: stretch` making chips look ~1.5x too tall)
+- [x] List view selection-highlight fix — `bg-white` was applied unconditionally alongside a conditional `bg-blue-50`, so which one rendered depended on Tailwind's generated stylesheet order, not click state; made mutually exclusive via ternary (matching Grid view's already-correct pattern)
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window
@@ -61,7 +64,7 @@
 ## UI features implemented
 
 - Native macOS menu bar (File, Edit, View)
-- **View menu:** Pattern Reference (Full/Compact/Off), Pattern Description toggle, Options toggle, Appearance (Light/Dark/System), Reset to Default Layout
+- **View menu:** Pattern Reference (Full/Compact/Off), Pattern Description toggle, Options toggle, Word List Layout (Grid/List), Variants (Show/Hide), Window Layout (Rows/Columns), Appearance (Light/Dark/System), Reset to Default Layout
 - Dark mode: Apple-style neutral grays (`#1c1c1e` / `#2c2c2e` / `#3a3a3c`)
 - Pattern history: 100 entries, persisted, runs search on selection
 - Reference panel pattern clicks run search immediately

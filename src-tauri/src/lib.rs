@@ -55,6 +55,10 @@ struct MenuHandles {
     ref_off: CheckMenuItem<Wry>,
     layout_rows: CheckMenuItem<Wry>,
     layout_cols: CheckMenuItem<Wry>,
+    word_list_layout_grid: CheckMenuItem<Wry>,
+    word_list_layout_list: CheckMenuItem<Wry>,
+    variants_show: CheckMenuItem<Wry>,
+    variants_hide: CheckMenuItem<Wry>,
     appearance_light: CheckMenuItem<Wry>,
     appearance_dark: CheckMenuItem<Wry>,
     appearance_system: CheckMenuItem<Wry>,
@@ -622,6 +626,8 @@ fn validate_pattern(pattern: &str) -> Result<(), String> {
 fn sync_menu_state(
     reference: String,
     layout: String,
+    word_list_layout: String,
+    variants: String,
     appearance: String,
     show_description: bool,
     show_options: bool,
@@ -632,6 +638,10 @@ fn sync_menu_state(
     let _ = menu.ref_off.set_checked(reference == "off");
     let _ = menu.layout_rows.set_checked(layout == "stacked");
     let _ = menu.layout_cols.set_checked(layout == "columns");
+    let _ = menu.word_list_layout_grid.set_checked(word_list_layout == "grid");
+    let _ = menu.word_list_layout_list.set_checked(word_list_layout == "list");
+    let _ = menu.variants_show.set_checked(variants == "show");
+    let _ = menu.variants_hide.set_checked(variants == "hide");
     let _ = menu.appearance_light.set_checked(appearance == "light");
     let _ = menu.appearance_dark.set_checked(appearance == "dark");
     let _ = menu.appearance_system.set_checked(appearance == "system");
@@ -788,7 +798,19 @@ pub fn run() {
             let layout_rows = CheckMenuItem::with_id(app, "layout_rows", "Rows", true, true, None::<&str>)?;
             let layout_cols = CheckMenuItem::with_id(app, "layout_cols", "Columns", true, false, None::<&str>)?;
             let layout_submenu = Submenu::with_items(
-                app, "Layout", true, &[&layout_rows, &layout_cols],
+                app, "Window Layout", true, &[&layout_rows, &layout_cols],
+            )?;
+
+            let word_list_layout_grid = CheckMenuItem::with_id(app, "word_list_layout_grid", "Grid", true, false, None::<&str>)?;
+            let word_list_layout_list = CheckMenuItem::with_id(app, "word_list_layout_list", "List", true, true, None::<&str>)?;
+            let word_list_layout_submenu = Submenu::with_items(
+                app, "Word List Layout", true, &[&word_list_layout_grid, &word_list_layout_list],
+            )?;
+
+            let variants_show = CheckMenuItem::with_id(app, "variants_show", "Show", true, true, None::<&str>)?;
+            let variants_hide = CheckMenuItem::with_id(app, "variants_hide", "Hide", true, false, None::<&str>)?;
+            let variants_submenu = Submenu::with_items(
+                app, "Variants", true, &[&variants_show, &variants_hide],
             )?;
 
             let view_menu = Submenu::with_items(
@@ -799,6 +821,9 @@ pub fn run() {
                     &reference_submenu,
                     &toggle_description,
                     &toggle_options,
+                    &PredefinedMenuItem::separator(app)?,
+                    &word_list_layout_submenu,
+                    &variants_submenu,
                     &PredefinedMenuItem::separator(app)?,
                     &layout_submenu,
                     &PredefinedMenuItem::separator(app)?,
@@ -818,6 +843,10 @@ pub fn run() {
                 ref_off: ref_off.clone(),
                 layout_rows: layout_rows.clone(),
                 layout_cols: layout_cols.clone(),
+                word_list_layout_grid: word_list_layout_grid.clone(),
+                word_list_layout_list: word_list_layout_list.clone(),
+                variants_show: variants_show.clone(),
+                variants_hide: variants_hide.clone(),
                 appearance_light: appearance_light.clone(),
                 appearance_dark: appearance_dark.clone(),
                 appearance_system: appearance_system.clone(),
@@ -836,6 +865,14 @@ pub fn run() {
             let lc = layout_cols.clone();
             let lr2 = layout_rows.clone();
             let lc2 = layout_cols.clone();
+            let wg = word_list_layout_grid.clone();
+            let wl = word_list_layout_list.clone();
+            let wg2 = word_list_layout_grid.clone();
+            let wl2 = word_list_layout_list.clone();
+            let vs = variants_show.clone();
+            let vh = variants_hide.clone();
+            let vs2 = variants_show.clone();
+            let vh2 = variants_hide.clone();
             let al2 = appearance_light.clone();
             let ad2 = appearance_dark.clone();
             let as2 = appearance_system.clone();
@@ -865,12 +902,20 @@ pub fn run() {
                     }
                     "layout_rows" => { let _ = lr.set_checked(true); let _ = lc.set_checked(false); emit("menu:layout", "stacked"); }
                     "layout_cols" => { let _ = lr.set_checked(false); let _ = lc.set_checked(true); emit("menu:layout", "columns"); }
+                    "word_list_layout_grid" => { let _ = wg.set_checked(true); let _ = wl.set_checked(false); emit("menu:word_list_layout", "grid"); }
+                    "word_list_layout_list" => { let _ = wg.set_checked(false); let _ = wl.set_checked(true); emit("menu:word_list_layout", "list"); }
+                    "variants_show" => { let _ = vs.set_checked(true); let _ = vh.set_checked(false); emit("menu:variants", "show"); }
+                    "variants_hide" => { let _ = vs.set_checked(false); let _ = vh.set_checked(true); emit("menu:variants", "hide"); }
                     "reset_layout" => {
                         let _ = rf.set_checked(true);
                         let _ = rc.set_checked(false);
                         let _ = ro.set_checked(false);
                         let _ = lr2.set_checked(true);
                         let _ = lc2.set_checked(false);
+                        let _ = wg2.set_checked(false);
+                        let _ = wl2.set_checked(true);
+                        let _ = vs2.set_checked(true);
+                        let _ = vh2.set_checked(false);
                         let _ = al2.set_checked(false);
                         let _ = ad2.set_checked(false);
                         let _ = as2.set_checked(true);

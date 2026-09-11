@@ -399,6 +399,8 @@ export default function App() {
         invoke("sync_menu_state", {
           reference: ref_ ?? DEFAULTS.referenceMode,
           layout: layout ?? DEFAULTS.layoutMode,
+          wordListLayout: view ?? DEFAULTS.viewMode,
+          variants: vm ?? DEFAULTS.variantMode,
           appearance: app_ ?? DEFAULTS.appearance,
           showDescription: desc ?? DEFAULTS.showDescription,
           showOptions: opts ?? DEFAULTS.showOptions,
@@ -644,6 +646,10 @@ export default function App() {
     }).then((u) => unlisteners.push(u));
 
     listen<string>("menu:layout", (e) => setLayoutMode(e.payload as LayoutMode)).then((u) => unlisteners.push(u));
+
+    listen<string>("menu:word_list_layout", (e) => setViewMode(e.payload as ViewMode)).then((u) => unlisteners.push(u));
+
+    listen<string>("menu:variants", (e) => setVariantMode(e.payload as VariantMode)).then((u) => unlisteners.push(u));
 
     listen<string>("menu:reset_layout", () => {
       setReferenceMode(DEFAULTS.referenceMode);
@@ -1003,37 +1009,6 @@ export default function App() {
               <span className="text-xs text-gray-600 dark:text-gray-400">Fold accents</span>
             </label>
 
-            {normalize && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400">Variants:</span>
-                {(["show", "hide"] as VariantMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => setVariantMode(mode)}
-                    className={`px-2 py-0.5 rounded text-xs border transition-colors ${
-                      variantMode === mode
-                        ? "bg-blue-500 text-white border-blue-500"
-                        : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600"
-                    }`}
-                  >{mode === "show" ? "Show" : "Hide"}</button>
-                ))}
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-xs text-gray-400">View:</span>
-              {(["grid", "list"] as ViewMode[]).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setViewMode(v)}
-                  className={`px-2 py-0.5 rounded text-xs border transition-colors ${
-                    viewMode === v
-                      ? "bg-blue-500 text-white border-blue-500"
-                      : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-300 dark:border-gray-600"
-                  }`}
-                >{v === "grid" ? "Grid" : "List"}</button>
-              ))}
-            </div>
           </div>
         )}
 

@@ -87,8 +87,8 @@ function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>): number 
 // ── Grid view (embedded, virtualized) ──────────────────────────────────────────
 
 const GRID_CHIP_WIDTH = 150; // estimated column width, including gap
-const GRID_ROW_HEIGHT = 34;
-const GRID_HEADER_HEIGHT = 26;
+const GRID_ROW_HEIGHT = 28;
+const GRID_HEADER_HEIGHT = 28;
 
 type GridFlatRow =
   | { type: "header"; len: number }
@@ -106,6 +106,9 @@ function GridView({
   onWordRightClick: (word: string, originalWord: string, e: React.MouseEvent) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
+  const toggle = (len: number) => setCollapsed((prev) => ({ ...prev, [len]: !prev[len] }));
+
   const containerWidth = useContainerWidth(scrollContainerRef);
   const columns = Math.max(1, Math.floor((containerWidth - 24) / GRID_CHIP_WIDTH));
 
@@ -113,13 +116,15 @@ function GridView({
     const rows: GridFlatRow[] = [];
     for (const len of lengths) {
       rows.push({ type: "header", len });
-      const words = grouped[len];
-      for (let i = 0; i < words.length; i += columns) {
-        rows.push({ type: "row", len, words: words.slice(i, i + columns) });
+      if (!(collapsed[len] ?? false)) {
+        const words = grouped[len];
+        for (let i = 0; i < words.length; i += columns) {
+          rows.push({ type: "row", len, words: words.slice(i, i + columns) });
+        }
       }
     }
     return rows;
-  }, [lengths, grouped, columns]);
+  }, [lengths, grouped, columns, collapsed]);
 
   const virtualizer = useVirtualizer({
     count: flatRows.length,
@@ -129,7 +134,10 @@ function GridView({
   });
 
   return (
-    <div style={{ position: "relative", height: virtualizer.getTotalSize() }} className="mx-3 my-2">
+    <div
+      style={{ position: "relative", height: virtualizer.getTotalSize() }}
+      className="mx-3 my-2 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+    >
       {virtualizer.getVirtualItems().map((vRow) => {
         const row = flatRows[vRow.index];
         if (!row) return null;
@@ -139,24 +147,44 @@ function GridView({
         };
 
         if (row.type === "header") {
+          const isCollapsed = collapsed[row.len] ?? false;
           return (
-            <div key={vRow.key} style={style} className="flex items-end pb-1">
-              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                {row.len} letter{row.len === 1 ? "" : "s"} ({grouped[row.len].length})
+            <button
+              key={vRow.key}
+              style={style}
+              onClick={() => toggle(row.len)}
+              className={`w-full flex items-center justify-between px-3 text-left transition-colors ${
+                isCollapsed ? "bg-gray-50 dark:bg-gray-800" : "bg-gray-100 dark:bg-gray-700"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-xs transition-transform ${!isCollapsed ? "text-gray-500 dark:text-gray-300" : "text-gray-400 dark:text-gray-500"}`}
+                  style={{ display: "inline-block", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)" }}
+                >▾</span>
+                <span className={`text-xs font-semibold ${isCollapsed ? "text-gray-500 dark:text-gray-400" : "text-gray-700 dark:text-gray-200"}`}>
+                  {row.len} letter{row.len === 1 ? "" : "s"}
+                </span>
+              </div>
+              <span className="text-xs text-gray-400 dark:text-gray-400 bg-gray-50 dark:bg-gray-600 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-500">
+                {grouped[row.len].length} match{grouped[row.len].length === 1 ? "" : "es"}
               </span>
-            </div>
+            </button>
           );
         }
 
         return (
-          <div key={vRow.key} style={{ ...style, display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: "6px" }}>
+          <div
+            key={vRow.key}
+            style={{ ...style, display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, alignItems: "center", gap: "4px", padding: "2px 4px" }}
+          >
             {row.words.map((r) => (
               <div
                 key={r.normalized}
                 onClick={(e) => onWordClick(r.normalized, e)}
                 onContextMenu={(e) => onWordRightClick(r.normalized, r.variants[0] ?? r.normalized, e)}
                 title={r.variants.length > 0 ? `${r.normalized} (${r.variants.join(", ")})` : r.normalized}
-                className={`flex items-baseline gap-1 border rounded px-2.5 py-0.5 cursor-pointer select-none transition-colors overflow-hidden ${
+                className={`flex items-baseline gap-1 border rounded px-2 py-px cursor-pointer select-none transition-colors overflow-hidden ${
                   selectedWords.has(r.normalized)
                     ? "bg-blue-50 dark:bg-blue-900 border-blue-300 dark:border-blue-700"
                     : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500"
@@ -267,10 +295,10 @@ function ListView({
             style={style}
             onClick={(e) => onWordClick(r.normalized, e)}
             onContextMenu={(e) => onWordRightClick(r.normalized, r.variants[0] ?? r.normalized, e)}
-            className={`flex items-baseline justify-between px-3 cursor-pointer select-none transition-colors border-b border-gray-50 dark:border-gray-800 bg-white dark:bg-gray-900 ${
+            className={`flex items-baseline justify-between px-3 cursor-pointer select-none transition-colors border-b border-gray-50 dark:border-gray-800 ${
               selectedWords.has(r.normalized)
                 ? "bg-blue-50 dark:bg-blue-900"
-                : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                : "bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
             }`}
           >
             <span className="font-mono text-sm text-gray-800 dark:text-gray-200 truncate">{r.normalized}</span>

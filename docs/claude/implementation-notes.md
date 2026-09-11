@@ -52,6 +52,29 @@ emitted an event without flipping their own checkmark, and why
 `reset_layout` originally reset the reference/layout checkmarks but not
 appearance/description/options — both fixed alongside the startup sync).
 
+When Word List Layout (Grid/List) and Variants (Show/Hide) moved from inline
+Options-row buttons into the View menu, they followed this exact same
+pattern: two more `CheckMenuItem` pairs in `MenuHandles`, two more params on
+`sync_menu_state`, two more `on_menu_event` arms (each emitting
+`menu:word_list_layout`/`menu:variants` for `App.tsx` to pick up), and two
+more resets in the `reset_layout` arm. Any future menu-driven setting should
+follow the same checklist — it's easy to add the menu item and forget one of
+the four spots (build, sync, click handler, reset) and end up with exactly
+the kind of stale-checkmark bug this section describes.
+
+## List view selection highlight (Tailwind conditional-class cascade)
+`ListView`'s row background was `bg-white ... ${selected ? "bg-blue-50" : "hover:bg-gray-50"}`
+— `bg-white` unconditional, `bg-blue-50` only added when selected. Both are
+plain background-color utilities of equal CSS specificity, so which one wins
+depends on their order in Tailwind's *generated stylesheet*, not on the order
+they appear in the `className` string — class attribute order has no effect
+on the cascade. This made the selection highlight unreliable, while the
+underlying `selectedWords` state (and thus copy) was correct the whole time.
+`GridView` never had this bug because its selected/unselected backgrounds
+were already fully mutually exclusive via one ternary. Fix: same pattern in
+`ListView` — never pair an unconditional background utility with a
+conditionally-added one; make them one ternary with no shared base.
+
 ## Multiple binary targets
 `default-run = "app"` required in `Cargo.toml`. Engine module must be `pub mod`.
 

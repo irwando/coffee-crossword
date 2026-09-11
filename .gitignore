@@ -29,4 +29,7 @@ scowl.tar.gz
 *.tsc
 
 # Large word list source files that exceed GitHub's 100 MB limit
-dictionaries/titles.txt
+dictionaries/Wikipedia Titles.txt
+
+# Supplemental word lists kept local-only (not checked in)
+dictionaries/Crossword-Nexus Word List.txt

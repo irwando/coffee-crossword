@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, Fragment } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { load, Store } from "@tauri-apps/plugin-store";
 import { listen } from "@tauri-apps/api/event";
@@ -326,7 +326,10 @@ export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // All words currently visible (for shift-click range selection)
-  const allWords = listResults.flatMap((lr) => (lr.results ?? []).map((r) => r.normalized));
+  const allWords = useMemo(
+    () => listResults.flatMap((lr) => (lr.results ?? []).map((r) => r.normalized)),
+    [listResults]
+  );
 
   // ── Pane sizes ────────────────────────────────────────────────────────────
   // Reset to equal sizes when the number of active lists changes.

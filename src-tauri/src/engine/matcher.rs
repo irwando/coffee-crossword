@@ -11,21 +11,23 @@ use std::collections::HashMap;
 use crate::engine::ast::{AnagramChar, LogicalExpr, Pattern, SubPattern, TemplateChar};
 
 /// Carries letter variable bindings through template matching.
-#[derive(Clone)]
+/// Variables are single digits (0-9, see parser.rs), so a fixed array avoids
+/// the heap allocation a HashMap would incur on every backtracking clone.
+#[derive(Clone, Copy)]
 struct MatchContext {
-    variables: HashMap<u8, char>,
+    variables: [Option<char>; 10],
 }
 
 impl MatchContext {
     fn new() -> Self {
-        MatchContext { variables: HashMap::new() }
+        MatchContext { variables: [None; 10] }
     }
 
     fn bind(&mut self, var: u8, ch: char) -> bool {
-        match self.variables.get(&var) {
-            Some(&existing) => existing == ch,
+        match self.variables[var as usize] {
+            Some(existing) => existing == ch,
             None => {
-                self.variables.insert(var, ch);
+                self.variables[var as usize] = Some(ch);
                 true
             }
         }
@@ -181,7 +183,7 @@ fn matches_template_slice(word: &[char], template: &[TemplateChar], ctx: &mut Ma
     match &template[0] {
         TemplateChar::Wildcard => {
             for i in 0..=word.len() {
-                let mut ctx_clone = ctx.clone();
+                let mut ctx_clone = *ctx;
                 if matches_template_slice(&word[i..], &template[1..], &mut ctx_clone) {
                     *ctx = ctx_clone;
                     return true;
@@ -213,7 +215,7 @@ fn matches_template_slice(word: &[char], template: &[TemplateChar], ctx: &mut Ma
             if word.is_empty() {
                 return false;
             }
-            let mut ctx_clone = ctx.clone();
+            let mut ctx_clone = *ctx;
             if char_matches(word[0], t, &mut ctx_clone) {
                 if matches_template_slice(&word[1..], &template[1..], &mut ctx_clone) {
                     *ctx = ctx_clone;
@@ -252,7 +254,7 @@ fn matches_template_wildcard(
     match &template[0] {
         TemplateChar::Wildcard => {
             for i in 0..=word.len() {
-                let mut ctx_clone = ctx.clone();
+                let mut ctx_clone = *ctx;
                 if matches_template_wildcard(&word[i..], &template[1..], &mut ctx_clone) {
                     *ctx = ctx_clone;
                     return true;

@@ -2,11 +2,26 @@
 // Runs the search loop over a word list or cache, groups results by normalized
 // key, and deduplicates variants.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::engine::ast::{LogicalExpr, MatchGroup};
 use crate::engine::matcher::eval_expr;
 use crate::engine::normalize::matching_form;
+
+/// Matching form for one cache entry. `entry.norm` is already lowercased and
+/// letter/digit-only at build time (see `cache::normalize_word`), so the
+/// normalize=true case borrows it with zero allocation. normalize=false needs
+/// one allocation (`orig` isn't guaranteed lowercase); raw and normalized use
+/// the same value in that mode, matching the previous `matching_form(_, false)`
+/// behavior (a plain lowercase, punctuation stripped later by anagram matching).
+fn candidate_word<'a>(entry: &crate::cache::CacheEntry<'a>, normalize_mode: bool) -> Cow<'a, str> {
+    if normalize_mode {
+        Cow::Borrowed(entry.norm)
+    } else {
+        Cow::Owned(entry.orig.to_lowercase())
+    }
+}
 
 /// Intermediate match result before grouping — private to this module.
 #[derive(Clone)]
@@ -113,24 +128,17 @@ where
             }
 
             let entry = cache.get_entry(i);
+            let word = candidate_word(&entry, normalize_mode);
 
-            let (raw_word, norm_word) = if normalize_mode {
-                (entry.norm.to_lowercase(), entry.norm.to_string())
-            } else {
-                let orig_lower = entry.orig.to_lowercase();
-                let norm = matching_form(&orig_lower, false);
-                (orig_lower, norm)
-            };
-
-            let word_len = norm_word.chars().count();
+            let word_len = word.chars().count();
             if word_len < min_len || word_len > max_len {
                 continue;
             }
 
-            if let Some(balance_str) = eval_expr(&raw_word, &norm_word, word_len, expr) {
+            if let Some(balance_str) = eval_expr(&word, &word, word_len, expr) {
                 let raw_match = RawMatch {
                     original: entry.orig.to_string(),
-                    normalized_key: norm_word,
+                    normalized_key: word.into_owned(),
                     balance: if balance_str.is_empty() { None } else { Some(balance_str) },
                 };
                 bucket_raw.push(raw_match.clone());
@@ -187,25 +195,17 @@ fn search_cache_inner(
             }
 
             let entry = cache.get_entry(i);
+            let word = candidate_word(&entry, normalize_mode);
 
-            // Choose matching form based on normalize mode.
-            let (raw_word, norm_word) = if normalize_mode {
-                (entry.norm.to_lowercase(), entry.norm.to_string())
-            } else {
-                let orig_lower = entry.orig.to_lowercase();
-                let norm = matching_form(&orig_lower, false);
-                (orig_lower, norm)
-            };
-
-            let word_len = norm_word.chars().count();
+            let word_len = word.chars().count();
             if word_len < min_len || word_len > max_len {
                 continue;
             }
 
-            if let Some(balance_str) = eval_expr(&raw_word, &norm_word, word_len, expr) {
+            if let Some(balance_str) = eval_expr(&word, &word, word_len, expr) {
                 raw.push(RawMatch {
                     original: entry.orig.to_string(),
-                    normalized_key: norm_word,
+                    normalized_key: word.into_owned(),
                     balance: if balance_str.is_empty() { None } else { Some(balance_str) },
                 });
             }

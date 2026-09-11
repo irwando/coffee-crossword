@@ -325,6 +325,13 @@ export default function App() {
   const historyRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Streaming accumulation buffer: partial-result batches are pushed here and
+  // flushed to state at most once per animation frame, instead of spreading
+  // the full accumulated array into a new one on every batch (O(n) per batch
+  // -> O(n) per frame). Keyed by list_id.
+  const streamBufferRef = useRef<Record<string, MatchGroup[]>>({});
+  const flushRafRef = useRef<number | null>(null);
+
   // All words currently visible (for shift-click range selection)
   const allWords = useMemo(
     () => listResults.flatMap((lr) => (lr.results ?? []).map((r) => r.normalized)),
@@ -472,7 +479,37 @@ export default function App() {
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
 
+    const cancelScheduledFlush = () => {
+      if (flushRafRef.current !== null) {
+        cancelAnimationFrame(flushRafRef.current);
+        flushRafRef.current = null;
+      }
+    };
+
+    // Flush buffered partial-result batches into state — at most once per
+    // animation frame, regardless of how many batches arrived in that frame.
+    // Replaces the old per-batch `[...lr.results, ...groups]` spread, which
+    // copied the whole accumulated array on every single batch (O(n) per
+    // batch -> effectively O(n^2) over a large streamed search).
+    const flushStreamBuffer = () => {
+      flushRafRef.current = null;
+      const buffer = streamBufferRef.current;
+      const pendingIds = Object.keys(buffer);
+      if (pendingIds.length === 0) return;
+      streamBufferRef.current = {};
+      setListResults((prev) =>
+        prev.map((lr) => {
+          const batched = buffer[lr.listId];
+          if (!batched || batched.length === 0) return lr;
+          const results = lr.results === null ? batched : [...lr.results, ...batched];
+          return { ...lr, results, isLoading: false, isStreaming: true };
+        })
+      );
+    };
+
     listen<{ active_ids: string[] }>("search:start", (e) => {
+      streamBufferRef.current = {};
+      cancelScheduledFlush();
       setIsSearching(true);
       setListResults(
         e.payload.active_ids.map((id) => {
@@ -491,29 +528,27 @@ export default function App() {
     }).then((u) => unlisteners.push(u));
 
     // Partial results from each length bucket — fires before search:list-result.
+    // Buffered and flushed at most once per animation frame (see flushStreamBuffer).
     listen<{ list_id: string; groups: MatchGroup[] }>(
       "search:list-result-partial",
       (e) => {
         const { list_id, groups } = e.payload;
-        setListResults((prev) =>
-          prev.map((lr) => {
-            if (lr.listId !== list_id) return lr;
-            if (lr.results === null) {
-              // First batch: replace skeleton with real results
-              return { ...lr, results: groups, isLoading: false, isStreaming: true, truncated: false };
-            }
-            // Subsequent batch: append (buckets arrive in ascending length order)
-            return { ...lr, results: [...lr.results, ...groups], isStreaming: true };
-          })
-        );
+        const buffer = streamBufferRef.current;
+        buffer[list_id] = buffer[list_id] ? [...buffer[list_id], ...groups] : groups;
+        if (flushRafRef.current === null) {
+          flushRafRef.current = requestAnimationFrame(flushStreamBuffer);
+        }
       }
     ).then((u) => unlisteners.push(u));
 
     // Full result for this list — replaces all partials with the canonical set.
+    // Drop any buffered-but-not-yet-flushed batches for this list so a stale
+    // flush can't race in afterward and clobber the authoritative result.
     listen<{ list_id: string; list_name: string; results: MatchGroup[]; truncated: boolean; error: string | null }>(
       "search:list-result",
       (e) => {
         const { list_id, list_name, results, truncated } = e.payload;
+        delete streamBufferRef.current[list_id];
         setListResults((prev) =>
           prev.map((lr) =>
             lr.listId === list_id
@@ -529,6 +564,7 @@ export default function App() {
       "search:list-result-final",
       (e) => {
         const { list_id, list_name, results, truncated } = e.payload;
+        delete streamBufferRef.current[list_id];
         setListResults((prev) =>
           prev.map((lr) =>
             lr.listId === list_id
@@ -540,6 +576,8 @@ export default function App() {
     ).then((u) => unlisteners.push(u));
 
     listen("search:complete", () => {
+      cancelScheduledFlush();
+      streamBufferRef.current = {};
       setIsSearching(false);
     }).then((u) => unlisteners.push(u));
 
@@ -548,7 +586,10 @@ export default function App() {
     listen("build:complete", () => setBuildInProgress(false)).then((u) => unlisteners.push(u));
     listen("build:error", () => setBuildInProgress(false)).then((u) => unlisteners.push(u));
 
-    return () => unlisteners.forEach((u) => u());
+    return () => {
+      cancelScheduledFlush();
+      unlisteners.forEach((u) => u());
+    };
   }, [registry]);
 
   // ── Wait for background cache handle loading ────────────────────────────

@@ -347,4 +347,41 @@ plain text input.
 - `search` command returns an error immediately if `handles_loaded` is false
 - `handles_ready` Tauri command lets the frontend poll as a fallback
 - Frontend `listsLoading` state starts `true`; set `false` on `registry:ready` event or `handles_ready()` poll
+
+---
+
+## Open Dictionaries Folder — implemented
+
+**Motivation:** `find_dict_dir()`'s "next to the binary" fallback resolves
+inside `Contents/MacOS/` for a packaged `.app`, which never contains a real
+dictionaries folder — a packaged build opened with zero word lists. Rather
+than add a second hard-coded fallback, the user picks the folder directly via
+File → Open Dictionaries Folder…, using `tauri-plugin-dialog`'s Rust API
+(`DialogExt`) so no round-trip to the frontend or webview ACL entry is
+needed — the picker is triggered from the menu-event handler in Rust, not
+invoked from the webview, so `capabilities/default.json` is untouched.
+
+**Implementation:**
+- `AppState.dict_dir: Mutex<PathBuf>` (was a plain `PathBuf` set once at
+  startup) — read/write via the lock everywhere it's used
+- `do_rescan()` — `rescan_registry`'s old body, extracted to a plain sync fn
+  taking `&Path`/`&AppState`/`&AppHandle` so both `rescan_registry` (same
+  directory) and `switch_dictionaries_dir` (new directory) can call it
+- `spawn_handle_loading()` — the startup background-mmap-open task, extracted
+  so a directory switch can reuse it: switching means *every* Ready entry
+  needs a fresh handle (unlike a same-directory rescan, where only new
+  entries typically need one), so this must stay off the main thread for the
+  same reason startup does (see "Startup delay fix" above)
+- `switch_dictionaries_dir()` — locks in the new dir, sets `handles_loaded =
+  false`, emits `dictionaries_dir:loading`, calls `do_rescan` (fast,
+  synchronous, metadata only), emits `dictionaries_dir:changed` with the new
+  path, then calls `spawn_handle_loading`
+- `set_dictionaries_dir` command — frontend-invokable wrapper around
+  `switch_dictionaries_dir`, used to replay a persisted folder at launch
+  (same "frontend owns persistence, replays via a command at startup"
+  pattern as `active_ids`/`dedup_enabled`)
+- Frontend: `dictionaries_dir:loading` re-shows the `listsLoading` banner;
+  `dictionaries_dir:changed` persists the new path to the settings store as
+  `dictionariesDir`; at startup, if a path was persisted, `applyAndFetch()`
+  calls `set_dictionaries_dir` before its first `get_registry` fetch
 - Search button disabled and "Loading word lists…" shown while `listsLoading`

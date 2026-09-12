@@ -50,6 +50,7 @@
 - [x] Word length as a pattern prefix (`5:`, `5-:`, `-5:`, `5-8:`) — replaces the old "Word length" window option; parsed once in `engine::parser::parse_length_prefix` before the rest of the pattern, so `search_words`/`search_cache`/CLI/`search` Tauri command no longer take separate min/max-length params; see `implementation-notes.md`
 - [x] Options moved to a native "Options" menu (Normalize submenu: Remove Punctuation/Fold Accents; Max Results…/Timeout… open a dialog) — removes the main-window Options row and the View menu's Options toggle entirely; no matching-behavior change, same `normalize`/`foldAccents` flags as before; see `implementation-notes.md`
 - [x] Pop out Pattern Reference to its own window — View → Pattern Reference → Pop Out to Window (or the panel's own "Pop out ↗" button); a separate `WebviewWindow` (`open_reference_window`/`close_reference_window`) shows the Full or Compact table, live-synced to the main window's style; clicking a pattern there runs the search in the main window; closing the window (Dock button, native close, or Cmd+W) docks it back; see `implementation-notes.md`
+- [x] File → Open Dictionaries Folder… — native folder picker (`tauri-plugin-dialog`, Rust-side, no capabilities/ACL changes needed) lets the user point the app at any folder of `.txt` word lists; `AppState.dict_dir` is now a `Mutex<PathBuf>` so it can change at runtime; switching rescans metadata immediately then reopens all Ready lists' mmap handles in the background (same pattern as startup); persisted via `dictionariesDir` in the settings store and replayed with `set_dictionaries_dir` at launch; fixes packaged `.app` builds opening with zero word lists since `find_dict_dir()`'s "next to the binary" fallback can't resolve inside a `.app` bundle; see `implementation-notes.md`
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window
@@ -68,6 +69,7 @@
 ## UI features implemented
 
 - Native macOS menu bar (File, Edit, View, Options)
+- **File menu:** Open Dictionaries Folder… (native picker, switches word list source folder at runtime and persists it), Manage Word Lists…
 - **View menu:** Pattern Reference (Full/Compact/Off, Pop Out to Window), Pattern Description toggle, Word List Layout (Grid/List), Variants (Show/Hide), Window Layout (Rows/Columns), Appearance (Light/Dark/System), Reset to Default Layout
 - **Options menu:** Normalize submenu (Remove Punctuation, Fold Accents — independent checkboxes), Max Results… (dialog, default 5,000), Timeout… (dialog, default 30s)
 - Dark mode: Apple-style neutral grays (`#1c1c1e` / `#2c2c2e` / `#3a3a3c`)

@@ -57,6 +57,7 @@ least 8 letters, …") when a prefix is present.
 | `rename_list` | Override display name for a list (persisted) |
 | `build_list_cache` | Build/rebuild `.tsc` for one list; streams build events |
 | `rescan_registry` | Re-scan the dictionaries folder for new/changed `.txt` files |
+| `set_dictionaries_dir` | Switch to a new dictionaries folder (persisted by the frontend, replayed at startup). Params: `path`. Fire-and-forget — completion is signaled by `registry:ready`, same as startup |
 | `handles_ready` | Poll whether background mmap handle loading has finished (fallback for the `registry:ready` event) |
 | `open_reference_window` | Pop the Pattern Reference panel into its own window (labeled `reference`), or focus it if already open. Params: `appearance`, `style` (`"full"` \| `"compact"`) — embedded in the new window's URL so it can render correctly without needing store access |
 | `close_reference_window` | Close the popped-out Pattern Reference window if open (a no-op otherwise) — used by both the in-window Dock button and the View → Pattern Reference → Pop Out to Window checkbox |
@@ -74,7 +75,9 @@ least 8 letters, …") when a prefix is present.
 | `search:dedup` | `{ list_id, removed_count }` | After dedup applied |
 | `search:complete` | — | All lists done |
 | `registry:changed` | `{ active_ids, display_names, dedup_enabled }` | Registry mutated |
-| `registry:ready` | — | Background cache handles opened (post-startup) |
+| `registry:ready` | — | Background cache handles opened (post-startup, or after a dictionaries folder switch) |
+| `dictionaries_dir:loading` | — | A new dictionaries folder was chosen; handles are being reopened in the background |
+| `dictionaries_dir:changed` | `path: string` | The new folder's fast metadata rescan finished; frontend persists `path` as `dictionariesDir` |
 | `build:start` | `{ list_id }` | Build begins |
 | `build:progress` | `{ list_id, percent, phase }` | During build |
 | `build:complete` | `{ list_id, entry_count, elapsed_ms }` | Build done |

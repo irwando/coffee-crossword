@@ -20,6 +20,7 @@ use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     Emitter, Manager, State, Wry,
 };
+use tauri_plugin_dialog::DialogExt;
 
 use crate::cache::{build_cache, open_cache, CacheHandle};
 use crate::dedup::{deduplicate, ListSearchResult};
@@ -37,8 +38,9 @@ pub struct AppState {
     /// True once the background startup task has finished opening all mmap handles.
     /// Starts false; set true when registry:ready is emitted.
     pub handles_loaded: AtomicBool,
-    /// Path to the dictionaries folder (set once at startup).
-    pub dict_dir: PathBuf,
+    /// Path to the dictionaries folder. Mutable so the user can switch it at
+    /// runtime via File → Open Dictionaries Folder….
+    pub dict_dir: Mutex<PathBuf>,
     /// Shared cancel flag for the currently-running search.
     /// Replaced with a new Arc at the start of each search.
     /// Setting the flag to true causes search tasks to return early.
@@ -555,16 +557,12 @@ async fn cancel_search(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Re-scan the dictionaries folder for new or changed .txt files.
-/// Updates the registry and opens cache handles for any newly-Ready lists.
-/// Emits registry:changed so the frontend refreshes.
-#[tauri::command]
-async fn rescan_registry(
-    state: State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    let dict_dir = state.dict_dir.clone();
-    let new_available = crate::registry::scan_dictionaries(&dict_dir);
+/// Re-scan `dict_dir` for new or changed .txt files, update the registry, open
+/// cache handles for any newly-Ready lists, drop handles for vanished lists,
+/// and persist. Shared by `rescan_registry` (same-directory rescan) and
+/// `switch_dictionaries_dir` (rescan after pointing at a new directory).
+fn do_rescan(dict_dir: &std::path::Path, state: &AppState, app: &tauri::AppHandle) -> Result<(), String> {
+    let new_available = crate::registry::scan_dictionaries(dict_dir);
 
     let mut registry = state.registry.lock().map_err(|e| e.to_string())?;
     let mut handles = state.cache_handles.lock().map_err(|e| e.to_string())?;
@@ -594,7 +592,105 @@ async fn rescan_registry(
     // Drop handles for lists that no longer exist.
     handles.retain(|id, _| registry.available.iter().any(|e| &e.id == id));
 
-    persist_registry(&registry, &app);
+    persist_registry(&registry, app);
+    Ok(())
+}
+
+/// Re-scan the dictionaries folder for new or changed .txt files.
+/// Updates the registry and opens cache handles for any newly-Ready lists.
+/// Emits registry:changed so the frontend refreshes.
+#[tauri::command]
+async fn rescan_registry(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let dict_dir = state.dict_dir.lock().map_err(|e| e.to_string())?.clone();
+    do_rescan(&dict_dir, &state, &app)
+}
+
+/// Point the app at a new dictionaries directory: rescan it immediately
+/// (metadata only — fast), then reopen every Ready list's mmap handle in the
+/// background, the same way `setup()` does at startup. Emits
+/// `dictionaries_dir:loading` before the background reload and
+/// `dictionaries_dir:changed` right after the fast rescan so the frontend can
+/// persist the new path even while handles are still loading.
+fn switch_dictionaries_dir(new_dir: PathBuf, app: tauri::AppHandle) {
+    let state = app.state::<AppState>();
+
+    match state.dict_dir.lock() {
+        Ok(mut guard) => *guard = new_dir.clone(),
+        Err(e) => {
+            eprintln!("Failed to lock dict_dir: {}", e);
+            return;
+        }
+    }
+    state.handles_loaded.store(false, Ordering::SeqCst);
+    let _ = app.emit("dictionaries_dir:loading", ());
+
+    if let Err(e) = do_rescan(&new_dir, &state, &app) {
+        eprintln!("Failed to rescan new dictionaries directory: {}", e);
+    }
+
+    let _ = app.emit(
+        "dictionaries_dir:changed",
+        new_dir.to_string_lossy().to_string(),
+    );
+
+    spawn_handle_loading(app);
+}
+
+/// Background task that (re)opens mmap handles for every Ready list in the
+/// registry, then flips `handles_loaded` and emits `registry:ready`. Used
+/// both at startup and after switching dictionaries directories, since a
+/// directory switch means every Ready entry needs a fresh handle — doing
+/// that synchronously risks the same multi-second UI freeze this pattern
+/// already avoids at startup (e.g. the 428 MB Wikipedia list).
+fn spawn_handle_loading(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+
+        let ready_paths: Vec<(String, PathBuf)> = {
+            let registry = state.registry.lock().unwrap_or_else(|e| e.into_inner());
+            registry
+                .available
+                .iter()
+                .filter(|e| e.cache_state.is_ready())
+                .map(|e| (e.id.clone(), e.tsc_path.clone()))
+                .collect()
+        };
+
+        let new_handles: HashMap<String, Arc<CacheHandle>> = tokio::task::spawn_blocking(move || {
+            let mut h = HashMap::new();
+            for (id, path) in ready_paths {
+                match open_cache(&path) {
+                    Ok(handle) => {
+                        h.insert(id, Arc::new(handle));
+                    }
+                    Err(e) => eprintln!("Warning: could not open cache for {}: {}", id, e),
+                }
+            }
+            h
+        })
+        .await
+        .unwrap_or_default();
+
+        eprintln!("Opened {} cache handle(s) in background.", new_handles.len());
+        {
+            let mut handles = state.cache_handles.lock().unwrap_or_else(|e| e.into_inner());
+            *handles = new_handles;
+        }
+        state.handles_loaded.store(true, Ordering::SeqCst);
+        let _ = app.emit("registry:ready", serde_json::Value::Null);
+    });
+}
+
+/// Frontend-invokable wrapper around `switch_dictionaries_dir`, used to
+/// re-apply a persisted dictionaries folder at startup (mirrors the
+/// "frontend owns persistence, replays it via a command" pattern already
+/// used for `active_ids`/`dedup_enabled`).
+#[tauri::command]
+fn set_dictionaries_dir(path: String, app: tauri::AppHandle) -> Result<(), String> {
+    switch_dictionaries_dir(PathBuf::from(path), app);
     Ok(())
 }
 
@@ -721,6 +817,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -758,49 +855,15 @@ pub fn run() {
                 cache_handles: Mutex::new(HashMap::new()),
                 build_in_progress: AtomicBool::new(false),
                 handles_loaded: AtomicBool::new(false),
-                dict_dir,
+                dict_dir: Mutex::new(dict_dir),
                 search_cancel: Mutex::new(Arc::new(AtomicBool::new(false))),
             });
 
             // ── Open cache handles in background ───────────────────────────
-            {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let state = app_handle.state::<AppState>();
-
-                    // Collect paths without holding the lock during blocking I/O.
-                    let ready_paths: Vec<(String, PathBuf)> = {
-                        let registry = state.registry.lock().unwrap_or_else(|e| e.into_inner());
-                        registry.available.iter()
-                            .filter(|e| e.cache_state.is_ready())
-                            .map(|e| (e.id.clone(), e.tsc_path.clone()))
-                            .collect()
-                    };
-
-                    // Run Mmap::map() on a blocking thread — can be slow for large files on macOS.
-                    let new_handles: HashMap<String, Arc<CacheHandle>> =
-                        tokio::task::spawn_blocking(move || {
-                            let mut h = HashMap::new();
-                            for (id, path) in ready_paths {
-                                match open_cache(&path) {
-                                    Ok(handle) => { h.insert(id, Arc::new(handle)); }
-                                    Err(e) => eprintln!("Warning: could not open cache for {}: {}", id, e),
-                                }
-                            }
-                            h
-                        })
-                        .await
-                        .unwrap_or_default();
-
-                    eprintln!("Opened {} cache handle(s) in background.", new_handles.len());
-                    {
-                        let mut handles = state.cache_handles.lock().unwrap_or_else(|e| e.into_inner());
-                        *handles = new_handles;
-                    }
-                    state.handles_loaded.store(true, Ordering::SeqCst);
-                    let _ = app_handle.emit("registry:ready", serde_json::Value::Null);
-                });
-            }
+            // Mmap::map() can be slow for large files (e.g. 428 MB wikipedia
+            // list) on macOS, so this runs after setup() returns instead of
+            // blocking the window from appearing.
+            spawn_handle_loading(app.handle().clone());
 
             // ── Native menu ────────────────────────────────────────────────
             let file_menu = Submenu::with_items(
@@ -808,6 +871,13 @@ pub fn run() {
                 "File",
                 true,
                 &[
+                    &MenuItem::with_id(
+                        app,
+                        "open_dictionaries_folder",
+                        "Open Dictionaries Folder…",
+                        true,
+                        None::<&str>,
+                    )?,
                     &MenuItem::with_id(
                         app,
                         "manage_lists",
@@ -982,6 +1052,26 @@ pub fn run() {
                 };
                 match event.id().as_ref() {
                     "manage_lists" => emit("menu:lists", ""),
+                    "open_dictionaries_folder" => {
+                        let current = app
+                            .state::<AppState>()
+                            .dict_dir
+                            .lock()
+                            .map(|d| d.clone())
+                            .unwrap_or_default();
+                        let app_for_dialog = app.clone();
+                        app.dialog()
+                            .file()
+                            .set_directory(&current)
+                            .pick_folder(move |folder| {
+                                if let Some(dir) = folder {
+                                    match dir.into_path() {
+                                        Ok(path) => switch_dictionaries_dir(path, app_for_dialog),
+                                        Err(e) => eprintln!("Invalid folder selection: {}", e),
+                                    }
+                                }
+                            });
+                    }
                     // NOTE: macOS already flips a CheckMenuItem's native checked
                     // state before this handler runs (as part of default click
                     // handling), so `is_checked()` here already reflects the NEW
@@ -1058,6 +1148,7 @@ pub fn run() {
             rename_list,
             build_list_cache,
             rescan_registry,
+            set_dictionaries_dir,
             handles_ready,
             open_reference_window,
             close_reference_window,

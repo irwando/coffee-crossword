@@ -253,8 +253,9 @@ export default function App() {
         store.get<number>("searchTimeout"),
         store.get<number>("refColWidth"),
         store.get<number>("maxResults"),
+        store.get<string>("dictionariesDir"),
       ]).then(([n, fold, vm, view, ref_, desc, app_, hist,
-                activeIds, displayNames, dedup, layout, timeout_, refW, maxRes]) => {
+                activeIds, displayNames, dedup, layout, timeout_, refW, maxRes, dictionariesDir]) => {
         if (n !== null && n !== undefined) setNormalize(n);
         if (fold !== null && fold !== undefined) setFoldAccents(fold);
         if (vm) setVariantMode(vm);
@@ -291,6 +292,18 @@ export default function App() {
         // Apply persisted active_ids + names to backend, then fetch registry.
         const applyAndFetch = async () => {
           try {
+            // If the user previously chose a custom dictionaries folder,
+            // switch to it before reading the registry — this rescans
+            // synchronously (fast, metadata only) and re-shows the loading
+            // banner while it reopens cache handles in the background.
+            if (dictionariesDir) {
+              try {
+                await invoke("set_dictionaries_dir", { path: dictionariesDir });
+              } catch (e) {
+                console.error("Failed to restore dictionaries folder:", e);
+              }
+            }
+
             // First fetch the registry to see what's available.
             const reg = await invoke<Registry>("get_registry");
 
@@ -491,16 +504,27 @@ export default function App() {
   // We also poll handles_ready() as a fallback in case the event fires before
   // this listener is registered (race condition for fast/small word lists).
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
+    const unlisteners: Array<() => void> = [];
     listen("registry:ready", () => {
       setListsLoading(false);
       invoke<Registry>("get_registry").then(setRegistry).catch(console.error);
-    }).then((u) => { unlisten = u; });
+    }).then((u) => unlisteners.push(u));
     // Fallback: check if handles are already ready (fired before listener registered).
     invoke<boolean>("handles_ready")
       .then((ready) => { if (ready) setListsLoading(false); })
       .catch(() => setListsLoading(false));
-    return () => { if (unlisten) unlisten(); };
+
+    // Fired when the dictionaries folder is switched (File → Open
+    // Dictionaries Folder…), before handles are reopened in the background.
+    listen("dictionaries_dir:loading", () => setListsLoading(true))
+      .then((u) => unlisteners.push(u));
+    // Fired right after the new folder's fast metadata rescan completes, so
+    // the choice can be persisted even while handles are still loading.
+    listen<string>("dictionaries_dir:changed", (e) => {
+      storeRef.current?.set("dictionariesDir", e.payload);
+    }).then((u) => unlisteners.push(u));
+
+    return () => { unlisteners.forEach((u) => u()); };
   }, []);
 
   // ── Menu events ────────────────────────────────────────────────────────

@@ -38,16 +38,18 @@
 - [x] Dictionary lookup (FreeDictionary API) via right-click → Look up definition
 - [x] External lookup — per-list URL template with `{term}` token; embedded iframe panel with Open in Browser
 - [x] Incremental streaming results — `search:list-result-partial` events per length bucket; skeleton replaced on first hit
-- [x] Result cap (`maxResults`, default 100,000) — configurable in Options; prevents IPC backpressure deadlock on negated/broad patterns; shows amber truncation notice when hit
+- [x] Result cap (`maxResults`, default 5,000) — configurable via Options menu → Max Results…; prevents IPC backpressure deadlock on negated/broad patterns; shows amber truncation notice when hit
 - [x] Batch size cap (`MAX_BATCH_SIZE = 500`) — IPC events never exceed 500 entries; prevents multi-MB single events
 - [x] Search-loop allocation avoidance — `Cow<str>`-based candidate matching (`grouping.rs`), fixed-array `MatchContext` (`matcher.rs`), single-pass `GroupBuilder` (`grouping.rs`), fixed-array `CharCounts` for anagram matching (`matcher.rs`); see `implementation-notes.md`
 - [x] Virtualized results rendering (`@tanstack/react-virtual`) + throttled streaming accumulation — fixes large-list freeze at high `maxResults`; see `implementation-notes.md`
-- [x] Native menu checkmark sync (`sync_menu_state`) — menu checkmarks now match restored session state and actually flip on click for Description/Options
+- [x] Native menu checkmark sync (`sync_menu_state`) — menu checkmarks now match restored session state and actually flip on click for Description/Normalize/Fold Accents
 - [x] Accent folding option (`foldAccents`) — "andre" optionally matches "André"; opt-in, default off. `.tsc` format bumped to v2 (adds precomputed `orig_lower`/`fold` fields, drops unused on-disk `sort_key`) with version-based rebuild detection; see `word-lists.md` and `implementation-notes.md`
 - [x] Word List Layout (Grid/List) and Variants (Show/Hide) moved from inline Options-row buttons to View menu; "Layout" renamed to "Window Layout" to disambiguate from the new Word List Layout
 - [x] Grid view: collapsible length-group headers (matching List view), tighter chip sizing (row height 34px → 28px; fixed CSS Grid `align-items: stretch` making chips look ~1.5x too tall)
 - [x] List view selection-highlight fix — `bg-white` was applied unconditionally alongside a conditional `bg-blue-50`, so which one rendered depended on Tailwind's generated stylesheet order, not click state; made mutually exclusive via ternary (matching Grid view's already-correct pattern)
 - [x] Word length as a pattern prefix (`5:`, `5-:`, `-5:`, `5-8:`) — replaces the old "Word length" window option; parsed once in `engine::parser::parse_length_prefix` before the rest of the pattern, so `search_words`/`search_cache`/CLI/`search` Tauri command no longer take separate min/max-length params; see `implementation-notes.md`
+- [x] Options moved to a native "Options" menu (Normalize submenu: Remove Punctuation/Fold Accents; Max Results…/Timeout… open a dialog) — removes the main-window Options row and the View menu's Options toggle entirely; no matching-behavior change, same `normalize`/`foldAccents` flags as before; see `implementation-notes.md`
+- [x] Pop out Pattern Reference to its own window — View → Pattern Reference → Pop Out to Window (or the panel's own "Pop out ↗" button); a separate `WebviewWindow` (`open_reference_window`/`close_reference_window`) shows the Full or Compact table, live-synced to the main window's style; clicking a pattern there runs the search in the main window; closing the window (Dock button, native close, or Cmd+W) docks it back; see `implementation-notes.md`
 
 ### Phase 4 — definitions and lookup
 - [ ] Definition window
@@ -65,8 +67,9 @@
 
 ## UI features implemented
 
-- Native macOS menu bar (File, Edit, View)
-- **View menu:** Pattern Reference (Full/Compact/Off), Pattern Description toggle, Options toggle, Word List Layout (Grid/List), Variants (Show/Hide), Window Layout (Rows/Columns), Appearance (Light/Dark/System), Reset to Default Layout
+- Native macOS menu bar (File, Edit, View, Options)
+- **View menu:** Pattern Reference (Full/Compact/Off, Pop Out to Window), Pattern Description toggle, Word List Layout (Grid/List), Variants (Show/Hide), Window Layout (Rows/Columns), Appearance (Light/Dark/System), Reset to Default Layout
+- **Options menu:** Normalize submenu (Remove Punctuation, Fold Accents — independent checkboxes), Max Results… (dialog, default 5,000), Timeout… (dialog, default 30s)
 - Dark mode: Apple-style neutral grays (`#1c1c1e` / `#2c2c2e` / `#3a3a3c`)
 - Pattern history: 100 entries, persisted, runs search on selection
 - Reference panel pattern clicks run search immediately

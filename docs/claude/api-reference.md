@@ -50,7 +50,7 @@ least 8 letters, …") when a prefix is present.
 | `cancel_search` | Set the shared cancel flag for the currently-running search |
 | `describe_pattern` | Return human-readable pattern description |
 | `validate_pattern` | Validate pattern syntax |
-| `sync_menu_state` | Set native menu checkmarks (reference/layout/appearance/description/options) from frontend state. Called once at startup after persisted settings load, since the menu is built with hardcoded defaults before that resolves |
+| `sync_menu_state` | Set native menu checkmarks (reference/layout/word list layout/variants/appearance/description/normalize/fold accents) from frontend state. Called once at startup after persisted settings load, since the menu is built with hardcoded defaults before that resolves |
 | `get_registry` | Return current registry state to UI |
 | `set_active_lists` | Replace active_ids list (persisted) |
 | `set_dedup_enabled` | Toggle dedup (persisted) |
@@ -58,6 +58,8 @@ least 8 letters, …") when a prefix is present.
 | `build_list_cache` | Build/rebuild `.tsc` for one list; streams build events |
 | `rescan_registry` | Re-scan the dictionaries folder for new/changed `.txt` files |
 | `handles_ready` | Poll whether background mmap handle loading has finished (fallback for the `registry:ready` event) |
+| `open_reference_window` | Pop the Pattern Reference panel into its own window (labeled `reference`), or focus it if already open. Params: `appearance`, `style` (`"full"` \| `"compact"`) — embedded in the new window's URL so it can render correctly without needing store access |
+| `close_reference_window` | Close the popped-out Pattern Reference window if open (a no-op otherwise) — used by both the in-window Dock button and the View → Pattern Reference → Pop Out to Window checkbox |
 
 ---
 
@@ -77,9 +79,20 @@ least 8 letters, …") when a prefix is present.
 | `build:progress` | `{ list_id, percent, phase }` | During build |
 | `build:complete` | `{ list_id, entry_count, elapsed_ms }` | Build done |
 | `build:error` | `{ list_id, message }` | Build failed |
-| `menu:toggle` | `"description" \| "options"` | Menu toggle |
+| `menu:toggle` | `"description"` | Pattern Description toggle |
 | `menu:reference` | `"full" \| "compact" \| "off"` | Reference mode change |
+| `menu:layout` | `"stacked" \| "columns"` | Window layout change |
+| `menu:word_list_layout` | `"grid" \| "list"` | Word list layout change |
+| `menu:variants` | `"show" \| "hide"` | Variants show/hide |
 | `menu:appearance` | `"light" \| "dark" \| "system"` | Appearance change |
+| `menu:normalize` | `"on" \| "off"` | Options → Normalize → Remove Punctuation toggle |
+| `menu:fold_accents` | `"on" \| "off"` | Options → Normalize → Fold Accents toggle |
+| `menu:open_max_results_dialog` | — | Options → Max Results… clicked |
+| `menu:open_timeout_dialog` | — | Options → Timeout… clicked |
+| `menu:pop_out_reference` | `"on" \| "off"` | View → Pattern Reference → Pop Out to Window toggled |
+| `reference:pattern-clicked` | `pattern: string` | Emitted by the popped-out reference window (frontend `emit`, not a menu event) when a row is clicked; the main window runs the search and focuses itself |
+| `reference:style-changed` | `"full" \| "compact"` | Emitted by the main window whenever `referenceMode` changes, so a popped-out window's style stays live-synced |
+| `reference_window:closed` | — | The popped-out reference window closed (Dock button, native close, Cmd+W, or the main window quitting) — main window resumes inline rendering |
 | `menu:reset_layout` | — | Reset layout |
 | `menu:lists` | — | Open word list drawer |
 

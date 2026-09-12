@@ -1,12 +1,16 @@
 import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { load, Store } from "@tauri-apps/plugin-store";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import ResultsColumn from "./ResultsColumn";
 import WordListDrawer from "./WordListDrawer";
 import DictionaryPanel from "./DictionaryPanel";
 import ExternalLookupPanel from "./ExternalLookupPanel";
+import NumberPromptDialog from "./NumberPromptDialog";
+import { ReferenceFull, ReferenceCompact } from "./PatternReference";
+import { applyTheme, type AppearanceMode } from "./theme";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,7 +36,6 @@ interface ContextMenu {
 
 type VariantMode = "show" | "hide";
 type ViewMode = "grid" | "list";
-type AppearanceMode = "light" | "dark" | "system";
 type ReferenceMode = "full" | "compact" | "off";
 type LayoutMode = "stacked" | "columns";
 
@@ -71,135 +74,13 @@ const DEFAULTS = {
   foldAccents: false,
   variantMode: "show" as VariantMode,
   viewMode: "list" as ViewMode,
-  maxResults: 100_000,
+  maxResults: 5000,
   referenceMode: "full" as ReferenceMode,
   showDescription: true,
-  showOptions: true,
   appearance: "system" as AppearanceMode,
   layoutMode: "stacked" as LayoutMode,
   searchTimeout: 30,
 };
-
-// ── Theme ─────────────────────────────────────────────────────────────────────
-
-let systemDarkListener: ((e: MediaQueryListEvent) => void) | null = null;
-let systemMQ: MediaQueryList | null = null;
-
-function applyTheme(mode: AppearanceMode) {
-  const root = document.documentElement;
-  if (systemMQ && systemDarkListener) {
-    systemMQ.removeEventListener("change", systemDarkListener);
-    systemDarkListener = null;
-    systemMQ = null;
-  }
-  if (mode === "light") {
-    root.classList.remove("dark"); root.classList.add("light");
-  } else if (mode === "dark") {
-    root.classList.remove("light"); root.classList.add("dark");
-  } else {
-    systemMQ = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = (dark: boolean) => {
-      root.classList.toggle("dark", dark);
-      root.classList.toggle("light", !dark);
-    };
-    apply(systemMQ.matches);
-    systemDarkListener = (e) => apply(e.matches);
-    systemMQ.addEventListener("change", systemDarkListener);
-  }
-}
-
-// ── Reference panel data ──────────────────────────────────────────────────────
-
-const REFERENCE_ROWS = [
-  { feature: "Template",         pattern: ".l...r.n",    match: "electron",      note: ". or ? = any letter"        },
-  { feature: "Anagram",          pattern: ";acenrt",      match: "canter",        note: "; prefix = rearrange"        },
-  { feature: "Wildcard",         pattern: "m*ja",         match: "maharaja",      note: "* = zero or more letters"   },
-  { feature: "Choice list",      pattern: "[aeiou]....",  match: "ultra",         note: "any one letter from set"    },
-  { feature: "Negated choice",   pattern: "[^aeiou]...",  match: "cast",          note: "any letter not in set"      },
-  { feature: "Macro",            pattern: "@....",        match: "ultra",         note: "@ = vowel, # = consonant"   },
-  { feature: "Anagram blank",    pattern: ";acenrt.",     match: "cantered +ED",  note: ". = one unknown letter"     },
-  { feature: "Anagram wildcard", pattern: ";cats*",       match: "escalator",     note: "* = any extra letters"      },
-  { feature: "Tmpl + anagram",   pattern: "e.....;cats",  match: "enacts",        note: "combine both styles"        },
-  { feature: "Letter variable",  pattern: "12321",        match: "level",         note: "same digit = same letter"   },
-  { feature: "AND",              pattern: "c* & *s",      match: "cats",          note: "must match both"            },
-  { feature: "OR",               pattern: "c... | ...r",  match: "cast",          note: "matches either"             },
-  { feature: "NOT",              pattern: "c* & !cat*",   match: "cast",          note: "exclude matches"            },
-  { feature: "Sub-pattern",      pattern: "...(;orange)", match: "patronage",     note: "() switches mode"           },
-  { feature: "Punctuation",      pattern: "...-..-....", match: "pick-me-up",    note: "normalize off to use"       },
-  { feature: "Exact length",     pattern: "5:cat*",       match: "catty",         note: "X: = exactly X letters"     },
-  { feature: "Min length",       pattern: "8-:cat*",      match: "category",      note: "X-: = at least X letters"   },
-  { feature: "Max length",       pattern: "-4:cat*",      match: "cats",          note: "-X: = at most X letters"    },
-  { feature: "Length range",     pattern: "5-6:cat*",     match: "catchy",        note: "X-Y: = X to Y letters"      },
-];
-
-// ── Reference panels ──────────────────────────────────────────────────────────
-
-function ReferenceHeader() {
-  return (
-    <div className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide px-3 mb-1.5">
-      Pattern reference
-    </div>
-  );
-}
-
-function ReferenceFull({ onPatternClick }: { onPatternClick: (p: string) => void }) {
-  return (
-    <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-      <div className="px-3 pt-2 pb-1"><ReferenceHeader /></div>
-      <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
-        <thead>
-          <tr className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Feature</th>
-            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Pattern</th>
-            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Match</th>
-            <th className="text-left px-3 py-1.5 font-medium text-gray-400 dark:text-gray-500 w-1/4">Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {REFERENCE_ROWS.map((row) => (
-            <tr key={row.feature}
-              className="border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-white dark:hover:bg-gray-700 cursor-pointer"
-              onClick={() => onPatternClick(row.pattern)}
-            >
-              <td className="px-3 py-1.5 text-gray-600 dark:text-gray-300 font-medium">{row.feature}</td>
-              <td className="px-3 py-1.5">
-                <span className="font-mono text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded px-1.5 py-0.5">
-                  {row.pattern}
-                </span>
-              </td>
-              <td className="px-3 py-1.5 font-mono text-gray-500 dark:text-gray-400">{row.match}</td>
-              <td className="px-3 py-1.5 text-gray-400 dark:text-gray-500">{row.note}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ReferenceCompact({ onPatternClick, singleColumn = false }: { onPatternClick: (p: string) => void; singleColumn?: boolean }) {
-  return (
-    <div className="mb-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
-      <ReferenceHeader />
-      <div className={`grid ${singleColumn ? "grid-cols-1" : "grid-cols-2"} gap-x-4 gap-y-0.5`}>
-        {REFERENCE_ROWS.map((row) => (
-          <div
-            key={row.feature}
-            onClick={() => onPatternClick(row.pattern)}
-            className="flex items-baseline gap-1 font-mono text-xs overflow-hidden cursor-pointer hover:opacity-70"
-          >
-            <span className="font-sans text-gray-500 dark:text-gray-400 flex-shrink-0 text-xs">{row.feature}</span>
-            <span className="text-gray-300 dark:text-gray-600 flex-shrink-0">(</span>
-            <span className="text-gray-800 dark:text-gray-200 flex-shrink-0">{row.pattern}</span>
-            <span className="text-gray-400 dark:text-gray-500 flex-shrink-0">→</span>
-            <span className="text-gray-500 dark:text-gray-400 truncate">{row.match.split(",")[0].split(" ")[0]}</span>
-            <span className="text-gray-300 dark:text-gray-600 flex-shrink-0">)</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ── Context menu ──────────────────────────────────────────────────────────────
 
@@ -314,11 +195,13 @@ export default function App() {
   const [maxResults, setMaxResults] = useState(DEFAULTS.maxResults);
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>(DEFAULTS.referenceMode);
   const [showDescription, setShowDescription] = useState(DEFAULTS.showDescription);
-  const [showOptions, setShowOptions] = useState(DEFAULTS.showOptions);
   const [appearance, setAppearance] = useState<AppearanceMode>(DEFAULTS.appearance);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(DEFAULTS.layoutMode);
   const [searchTimeout, setSearchTimeout] = useState(DEFAULTS.searchTimeout);
   const [refColWidth, setRefColWidth] = useState(200);
+  const [maxResultsDialogOpen, setMaxResultsDialogOpen] = useState(false);
+  const [timeoutDialogOpen, setTimeoutDialogOpen] = useState(false);
+  const [referencePoppedOut, setReferencePoppedOut] = useState(false);
 
   // ── Refs ──────────────────────────────────────────────────────────────
   const storeRef = useRef<Store | null>(null);
@@ -361,7 +244,6 @@ export default function App() {
         store.get<ViewMode>("viewMode"),
         store.get<ReferenceMode>("referenceMode"),
         store.get<boolean>("showDescription"),
-        store.get<boolean>("showOptions"),
         store.get<AppearanceMode>("appearance"),
         store.get<HistoryEntry[]>("history"),
         store.get<string[]>("word_list_active_ids"),
@@ -371,7 +253,7 @@ export default function App() {
         store.get<number>("searchTimeout"),
         store.get<number>("refColWidth"),
         store.get<number>("maxResults"),
-      ]).then(([n, fold, vm, view, ref_, desc, opts, app_, hist,
+      ]).then(([n, fold, vm, view, ref_, desc, app_, hist,
                 activeIds, displayNames, dedup, layout, timeout_, refW, maxRes]) => {
         if (n !== null && n !== undefined) setNormalize(n);
         if (fold !== null && fold !== undefined) setFoldAccents(fold);
@@ -379,7 +261,6 @@ export default function App() {
         if (view) setViewMode(view);
         if (ref_) setReferenceMode(ref_);
         if (desc !== null && desc !== undefined) setShowDescription(desc);
-        if (opts !== null && opts !== undefined) setShowOptions(opts);
         if (app_) { setAppearance(app_); applyTheme(app_); }
         if (hist) setHistory(hist);
         if (layout) setLayoutMode(layout);
@@ -399,7 +280,8 @@ export default function App() {
           variants: vm ?? DEFAULTS.variantMode,
           appearance: app_ ?? DEFAULTS.appearance,
           showDescription: desc ?? DEFAULTS.showDescription,
-          showOptions: opts ?? DEFAULTS.showOptions,
+          normalize: n ?? DEFAULTS.normalize,
+          foldAccents: fold ?? DEFAULTS.foldAccents,
         }).catch(console.error);
 
         // Restore active list IDs and display names to backend, then load registry.
@@ -455,13 +337,12 @@ export default function App() {
     s.set("viewMode", viewMode);
     s.set("referenceMode", referenceMode);
     s.set("showDescription", showDescription);
-    s.set("showOptions", showOptions);
     s.set("appearance", appearance);
     s.set("layoutMode", layoutMode);
     s.set("searchTimeout", searchTimeout);
     s.set("refColWidth", refColWidth);
     s.set("maxResults", maxResults);
-  }, [normalize, foldAccents, variantMode, viewMode, maxResults, referenceMode, showDescription, showOptions, appearance, layoutMode, searchTimeout, refColWidth]);
+  }, [normalize, foldAccents, variantMode, viewMode, maxResults, referenceMode, showDescription, appearance, layoutMode, searchTimeout, refColWidth]);
 
   useEffect(() => {
     if (!settingsLoaded.current || !storeRef.current) return;
@@ -628,8 +509,27 @@ export default function App() {
 
     listen<string>("menu:toggle", (e) => {
       if (e.payload === "description") setShowDescription((v) => !v);
-      else if (e.payload === "options") setShowOptions((v) => !v);
     }).then((u) => unlisteners.push(u));
+
+    listen<string>("menu:normalize", (e) => setNormalize(e.payload === "on")).then((u) => unlisteners.push(u));
+
+    listen<string>("menu:fold_accents", (e) => setFoldAccents(e.payload === "on")).then((u) => unlisteners.push(u));
+
+    listen("menu:open_max_results_dialog", () => setMaxResultsDialogOpen(true)).then((u) => unlisteners.push(u));
+
+    listen("menu:open_timeout_dialog", () => setTimeoutDialogOpen(true)).then((u) => unlisteners.push(u));
+
+    listen<string>("menu:pop_out_reference", (e) => {
+      if (e.payload === "on") handlePopOutReference();
+      else invoke("close_reference_window").catch(console.error);
+    }).then((u) => unlisteners.push(u));
+
+    listen<string>("reference:pattern-clicked", (e) => {
+      handleReferenceClickRef.current(e.payload);
+      getCurrentWindow().setFocus().catch(console.error);
+    }).then((u) => unlisteners.push(u));
+
+    listen("reference_window:closed", () => setReferencePoppedOut(false)).then((u) => unlisteners.push(u));
 
     listen<string>("menu:reference", (e) => setReferenceMode(e.payload as ReferenceMode)).then((u) => unlisteners.push(u));
 
@@ -648,7 +548,6 @@ export default function App() {
     listen<string>("menu:reset_layout", () => {
       setReferenceMode(DEFAULTS.referenceMode);
       setShowDescription(DEFAULTS.showDescription);
-      setShowOptions(DEFAULTS.showOptions);
       setNormalize(DEFAULTS.normalize);
       setFoldAccents(DEFAULTS.foldAccents);
       setVariantMode(DEFAULTS.variantMode);
@@ -657,6 +556,7 @@ export default function App() {
       applyTheme(DEFAULTS.appearance);
       setLayoutMode(DEFAULTS.layoutMode);
       setPaneSizes([]);
+      invoke("close_reference_window").catch(console.error);
     }).then((u) => unlisteners.push(u));
 
     listen("menu:lists", () => setDrawerOpen(true)).then((u) => unlisteners.push(u));
@@ -763,6 +663,32 @@ export default function App() {
 
   const handleReferenceClick = (p: string) => { doSearch(p); };
 
+  // Kept current every render so the mount-once "reference:pattern-clicked"
+  // listener (below) doesn't close over a stale first-render `doSearch` —
+  // `doSearch`'s identity changes whenever its own deps (pattern, maxResults,
+  // etc.) change.
+  const handleReferenceClickRef = useRef(handleReferenceClick);
+  useEffect(() => { handleReferenceClickRef.current = handleReferenceClick; });
+
+  // Same staleness concern as above — read via ref from mount-once listeners.
+  const appearanceRef = useRef(appearance);
+  useEffect(() => { appearanceRef.current = appearance; });
+  const referenceModeRef = useRef(referenceMode);
+  useEffect(() => { referenceModeRef.current = referenceMode; });
+
+  // Keep a popped-out reference window's Full/Compact style live — harmless
+  // no-op broadcast when no such window is open (no listener to receive it).
+  useEffect(() => {
+    emit("reference:style-changed", referenceMode === "compact" ? "compact" : "full");
+  }, [referenceMode]);
+
+  const handlePopOutReference = useCallback(() => {
+    invoke("open_reference_window", {
+      appearance: appearanceRef.current,
+      style: referenceModeRef.current === "compact" ? "compact" : "full",
+    }).then(() => setReferencePoppedOut(true)).catch(console.error);
+  }, []);
+
   // ── Word selection ─────────────────────────────────────────────────────
   const handleWordClick = useCallback((word: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -864,8 +790,8 @@ export default function App() {
       <div className="border-b border-gray-200 dark:border-gray-700 px-5 pt-2 pb-0 flex-shrink-0 bg-white dark:bg-gray-900">
 
         {/* Hide reference from header when column layout shows it as a dedicated column */}
-        {!(layoutMode === "columns" && hasMultipleLists) && referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} />}
-        {!(layoutMode === "columns" && hasMultipleLists) && referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} />}
+        {!(layoutMode === "columns" && hasMultipleLists) && !referencePoppedOut && referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} headerAction={{ label: "Pop out ↗", onClick: handlePopOutReference }} />}
+        {!(layoutMode === "columns" && hasMultipleLists) && !referencePoppedOut && referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} headerAction={{ label: "Pop out ↗", onClick: handlePopOutReference }} />}
 
         {/* Search row */}
         <div className="flex gap-2 mb-1" ref={historyRef}>
@@ -978,48 +904,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Options */}
-        {showOptions && (
-          <div className="flex flex-wrap items-center gap-4 py-1">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <div
-                onClick={() => setNormalize(!normalize)}
-                className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${normalize ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`}
-              >
-                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${normalize ? "translate-x-4" : "translate-x-0.5"}`} />
-              </div>
-              <span className="text-xs text-gray-600 dark:text-gray-400">Normalize</span>
-            </label>
-
-            <label className="flex items-center gap-2 cursor-pointer select-none" title='Match accented letters as plain equivalents, e.g. "andre" matches "André"'>
-              <div
-                onClick={() => setFoldAccents(!foldAccents)}
-                className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer ${foldAccents ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"}`}
-              >
-                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${foldAccents ? "translate-x-4" : "translate-x-0.5"}`} />
-              </div>
-              <span className="text-xs text-gray-600 dark:text-gray-400">Fold accents</span>
-            </label>
-
-          </div>
-        )}
-
-        {/* Result limits + timeout */}
-        <div className="flex items-center gap-2 pb-2 text-xs text-gray-400">
-          <span>Max results:</span>
-          <input
-            type="number" value={maxResults} min={100} max={1_000_000} step={1000}
-            onChange={(e) => setMaxResults(Math.min(1_000_000, Math.max(100, Number(e.target.value))))}
-            className="w-20 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
-          />
-          <span>Timeout:</span>
-          <input
-            type="number" value={searchTimeout} min={5} max={300}
-            onChange={(e) => setSearchTimeout(Math.min(300, Math.max(5, Number(e.target.value))))}
-            className="w-14 px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-center text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800"
-          />
-          <span>s</span>
-        </div>
       </div>
 
       {/* ── RESULTS HEADER (shown when results exist) ── */}
@@ -1070,14 +954,14 @@ export default function App() {
         {hasMultipleLists && (
           <div className={`h-full flex ${layoutMode === "columns" ? "flex-row" : "flex-col"} overflow-hidden bg-white dark:bg-gray-900`}>
             {/* Reference column — leftmost in column mode, always visible, width draggable */}
-            {layoutMode === "columns" && referenceMode !== "off" && (
+            {layoutMode === "columns" && referenceMode !== "off" && !referencePoppedOut && (
               <>
                 <div
                   className="flex-shrink-0 overflow-y-auto px-3 py-3"
                   style={{ width: refColWidth, minWidth: 120, maxWidth: 400 }}
                 >
-                  {referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} />}
-                  {referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} singleColumn />}
+                  {referenceMode === "full" && <ReferenceFull onPatternClick={handleReferenceClick} headerAction={{ label: "Pop out ↗", onClick: handlePopOutReference }} />}
+                  {referenceMode === "compact" && <ReferenceCompact onPatternClick={handleReferenceClick} singleColumn headerAction={{ label: "Pop out ↗", onClick: handlePopOutReference }} />}
                 </div>
                 <DragDivider
                   direction="vertical"
@@ -1184,6 +1068,27 @@ export default function App() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onRegistryChanged={refreshRegistry}
+      />
+
+      {/* ── OPTIONS MENU DIALOGS ── */}
+      <NumberPromptDialog
+        open={maxResultsDialogOpen}
+        title="Max Results"
+        label="Maximum number of results"
+        value={maxResults}
+        min={100} max={1_000_000} step={1000}
+        onSave={(v) => { setMaxResults(v); setMaxResultsDialogOpen(false); }}
+        onCancel={() => setMaxResultsDialogOpen(false)}
+      />
+      <NumberPromptDialog
+        open={timeoutDialogOpen}
+        title="Search Timeout"
+        label="Timeout"
+        value={searchTimeout}
+        min={5} max={300}
+        unit="s"
+        onSave={(v) => { setSearchTimeout(v); setTimeoutDialogOpen(false); }}
+        onCancel={() => setTimeoutDialogOpen(false)}
       />
     </div>
   );

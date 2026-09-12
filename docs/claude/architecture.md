@@ -101,7 +101,8 @@ Rust Backend (lib.rs)
     — exposes: search, cancel_search, get_registry, set_active_lists,
                build_list_cache, rescan_registry, handles_ready,
                set_dedup_enabled, rename_list, validate_pattern,
-               describe_pattern, sync_menu_state
+               describe_pattern, sync_menu_state, open_reference_window,
+               close_reference_window
     ↕
 Cache Layer (cache.rs)
     — builds .tsc from .txt

@@ -53,6 +53,7 @@ struct MenuHandles {
     ref_full: CheckMenuItem<Wry>,
     ref_compact: CheckMenuItem<Wry>,
     ref_off: CheckMenuItem<Wry>,
+    pop_out_reference: CheckMenuItem<Wry>,
     layout_rows: CheckMenuItem<Wry>,
     layout_cols: CheckMenuItem<Wry>,
     word_list_layout_grid: CheckMenuItem<Wry>,
@@ -63,7 +64,8 @@ struct MenuHandles {
     appearance_dark: CheckMenuItem<Wry>,
     appearance_system: CheckMenuItem<Wry>,
     toggle_description: CheckMenuItem<Wry>,
-    toggle_options: CheckMenuItem<Wry>,
+    normalize_item: CheckMenuItem<Wry>,
+    fold_accents_item: CheckMenuItem<Wry>,
 }
 
 // ── Serialisable types sent to the frontend ──────────────────────────────────
@@ -614,6 +616,69 @@ fn validate_pattern(pattern: &str) -> Result<(), String> {
     engine::validate_pattern(pattern)
 }
 
+/// Pop the Pattern Reference panel out into its own window, or focus it if
+/// already open. `appearance`/`style` (full|compact) are embedded in the
+/// window's URL so the new window can render correctly on load without
+/// needing store access. Checks the "Pop Out to Window" menu item regardless
+/// of whether this was triggered by that menu item or by the in-panel
+/// button, since both funnel through this one command.
+#[tauri::command]
+fn open_reference_window(app: tauri::AppHandle, appearance: String, style: String, menu: State<MenuHandles>) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("reference") {
+        let _ = w.set_focus();
+        let _ = menu.pop_out_reference.set_checked(true);
+        return Ok(());
+    }
+
+    let url = format!("index.html?window=reference&appearance={appearance}&style={style}");
+    let window = tauri::WebviewWindowBuilder::new(&app, "reference", tauri::WebviewUrl::App(url.into()))
+        .title("Pattern Reference")
+        .inner_size(420.0, 640.0)
+        .min_inner_size(320.0, 300.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let _ = menu.pop_out_reference.set_checked(true);
+
+    // Tell the main window to resume inline rendering once this window is
+    // gone, however it closed (Dock button, native close, Cmd+W), and
+    // uncheck the menu item since a native checkbox doesn't do that itself.
+    let app_for_ref_close = app.clone();
+    let pop_out_item = menu.pop_out_reference.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            let _ = pop_out_item.set_checked(false);
+            let _ = app_for_ref_close.emit("reference_window:closed", ());
+        }
+    });
+
+    // Quit safety: if the main window closes while this one is still open,
+    // close it too rather than leaving the app running as an orphaned
+    // reference-only process.
+    if let Some(main) = app.get_webview_window("main") {
+        let app_for_main_close = app.clone();
+        main.on_window_event(move |event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if let Some(w) = app_for_main_close.get_webview_window("reference") {
+                    let _ = w.close();
+                }
+            }
+        });
+    }
+
+    Ok(())
+}
+
+/// Close the popped-out Pattern Reference window, if open. A no-op otherwise.
+#[tauri::command]
+fn close_reference_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("reference") {
+        w.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Sync the native menu's checkmarks to match frontend state. Called once at
 /// startup after persisted settings are restored (the menu is built with
 /// hardcoded defaults before the frontend has loaded its settings store), and
@@ -626,7 +691,8 @@ fn sync_menu_state(
     variants: String,
     appearance: String,
     show_description: bool,
-    show_options: bool,
+    normalize: bool,
+    fold_accents: bool,
     menu: State<MenuHandles>,
 ) -> Result<(), String> {
     let _ = menu.ref_full.set_checked(reference == "full");
@@ -642,7 +708,8 @@ fn sync_menu_state(
     let _ = menu.appearance_dark.set_checked(appearance == "dark");
     let _ = menu.appearance_system.set_checked(appearance == "system");
     let _ = menu.toggle_description.set_checked(show_description);
-    let _ = menu.toggle_options.set_checked(show_options);
+    let _ = menu.normalize_item.set_checked(normalize);
+    let _ = menu.fold_accents_item.set_checked(fold_accents);
     Ok(())
 }
 
@@ -771,15 +838,16 @@ pub fn run() {
             let toggle_description = CheckMenuItem::with_id(
                 app, "toggle_description", "Pattern Description", true, true, None::<&str>,
             )?;
-            let toggle_options = CheckMenuItem::with_id(
-                app, "toggle_options", "Options", true, true, None::<&str>,
-            )?;
 
             let ref_full = CheckMenuItem::with_id(app, "ref_full", "Full", true, true, None::<&str>)?;
             let ref_compact = CheckMenuItem::with_id(app, "ref_compact", "Compact", true, false, None::<&str>)?;
             let ref_off = CheckMenuItem::with_id(app, "ref_off", "Off", true, false, None::<&str>)?;
+            let pop_out_reference = CheckMenuItem::with_id(
+                app, "pop_out_reference", "Pop Out to Window", true, false, None::<&str>,
+            )?;
             let reference_submenu = Submenu::with_items(
-                app, "Pattern Reference", true, &[&ref_full, &ref_compact, &ref_off],
+                app, "Pattern Reference", true,
+                &[&ref_full, &ref_compact, &ref_off, &PredefinedMenuItem::separator(app)?, &pop_out_reference],
             )?;
 
             let appearance_light = CheckMenuItem::with_id(app, "appearance_light", "Light", true, false, None::<&str>)?;
@@ -816,7 +884,6 @@ pub fn run() {
                 &[
                     &reference_submenu,
                     &toggle_description,
-                    &toggle_options,
                     &PredefinedMenuItem::separator(app)?,
                     &word_list_layout_submenu,
                     &variants_submenu,
@@ -829,7 +896,30 @@ pub fn run() {
                 ],
             )?;
 
-            let menu = Menu::with_items(app, &[&file_menu, &edit_menu, &view_menu])?;
+            let normalize_item = CheckMenuItem::with_id(
+                app, "normalize_toggle", "Remove Punctuation", true, true, None::<&str>,
+            )?;
+            let fold_accents_item = CheckMenuItem::with_id(
+                app, "fold_accents_toggle", "Fold Accents", true, false, None::<&str>,
+            )?;
+            let normalize_submenu = Submenu::with_items(
+                app, "Normalize", true, &[&normalize_item, &fold_accents_item],
+            )?;
+            let max_results_item = MenuItem::with_id(app, "max_results_dialog", "Max Results…", true, None::<&str>)?;
+            let timeout_item = MenuItem::with_id(app, "timeout_dialog", "Timeout…", true, None::<&str>)?;
+            let options_menu = Submenu::with_items(
+                app,
+                "Options",
+                true,
+                &[
+                    &normalize_submenu,
+                    &PredefinedMenuItem::separator(app)?,
+                    &max_results_item,
+                    &timeout_item,
+                ],
+            )?;
+
+            let menu = Menu::with_items(app, &[&file_menu, &edit_menu, &view_menu, &options_menu])?;
             app.set_menu(menu)?;
 
             // ── Register menu handles so sync_menu_state can update checkmarks ──
@@ -837,6 +927,7 @@ pub fn run() {
                 ref_full: ref_full.clone(),
                 ref_compact: ref_compact.clone(),
                 ref_off: ref_off.clone(),
+                pop_out_reference: pop_out_reference.clone(),
                 layout_rows: layout_rows.clone(),
                 layout_cols: layout_cols.clone(),
                 word_list_layout_grid: word_list_layout_grid.clone(),
@@ -847,7 +938,8 @@ pub fn run() {
                 appearance_dark: appearance_dark.clone(),
                 appearance_system: appearance_system.clone(),
                 toggle_description: toggle_description.clone(),
-                toggle_options: toggle_options.clone(),
+                normalize_item: normalize_item.clone(),
+                fold_accents_item: fold_accents_item.clone(),
             });
 
             // ── Menu event handler ─────────────────────────────────────────
@@ -857,6 +949,8 @@ pub fn run() {
             let rf = ref_full.clone();
             let rc = ref_compact.clone();
             let ro = ref_off.clone();
+            let por = pop_out_reference.clone();
+            let por2 = pop_out_reference.clone();
             let lr = layout_rows.clone();
             let lc = layout_cols.clone();
             let lr2 = layout_rows.clone();
@@ -874,8 +968,10 @@ pub fn run() {
             let as2 = appearance_system.clone();
             let td = toggle_description.clone();
             let td2 = toggle_description.clone();
-            let to_ = toggle_options.clone();
-            let to2 = toggle_options.clone();
+            let ni = normalize_item.clone();
+            let ni2 = normalize_item.clone();
+            let fi = fold_accents_item.clone();
+            let fi2 = fold_accents_item.clone();
 
             app.on_menu_event(move |app, event| {
                 let window = app.get_webview_window("main");
@@ -886,16 +982,28 @@ pub fn run() {
                 };
                 match event.id().as_ref() {
                     "manage_lists" => emit("menu:lists", ""),
+                    // NOTE: macOS already flips a CheckMenuItem's native checked
+                    // state before this handler runs (as part of default click
+                    // handling), so `is_checked()` here already reflects the NEW
+                    // state — read it directly rather than negating it. Negating
+                    // undoes the OS's own toggle, leaving the checkbox stuck.
                     "toggle_description" => {
-                        let next = !td.is_checked().unwrap_or(true);
+                        let next = td.is_checked().unwrap_or(true);
                         let _ = td.set_checked(next);
                         emit("menu:toggle", "description");
                     }
-                    "toggle_options" => {
-                        let next = !to_.is_checked().unwrap_or(true);
-                        let _ = to_.set_checked(next);
-                        emit("menu:toggle", "options");
+                    "normalize_toggle" => {
+                        let next = ni.is_checked().unwrap_or(true);
+                        let _ = ni.set_checked(next);
+                        emit("menu:normalize", if next { "on" } else { "off" });
                     }
+                    "fold_accents_toggle" => {
+                        let next = fi.is_checked().unwrap_or(false);
+                        let _ = fi.set_checked(next);
+                        emit("menu:fold_accents", if next { "on" } else { "off" });
+                    }
+                    "max_results_dialog" => emit("menu:open_max_results_dialog", ""),
+                    "timeout_dialog" => emit("menu:open_timeout_dialog", ""),
                     "layout_rows" => { let _ = lr.set_checked(true); let _ = lc.set_checked(false); emit("menu:layout", "stacked"); }
                     "layout_cols" => { let _ = lr.set_checked(false); let _ = lc.set_checked(true); emit("menu:layout", "columns"); }
                     "word_list_layout_grid" => { let _ = wg.set_checked(true); let _ = wl.set_checked(false); emit("menu:word_list_layout", "grid"); }
@@ -916,12 +1024,19 @@ pub fn run() {
                         let _ = ad2.set_checked(false);
                         let _ = as2.set_checked(true);
                         let _ = td2.set_checked(true);
-                        let _ = to2.set_checked(true);
+                        let _ = ni2.set_checked(true);
+                        let _ = fi2.set_checked(false);
+                        let _ = por2.set_checked(false);
                         emit("menu:reset_layout", "");
                     }
                     "ref_full" => { let _ = rf.set_checked(true); let _ = rc.set_checked(false); let _ = ro.set_checked(false); emit("menu:reference", "full"); }
                     "ref_compact" => { let _ = rf.set_checked(false); let _ = rc.set_checked(true); let _ = ro.set_checked(false); emit("menu:reference", "compact"); }
                     "ref_off" => { let _ = rf.set_checked(false); let _ = rc.set_checked(false); let _ = ro.set_checked(true); emit("menu:reference", "off"); }
+                    "pop_out_reference" => {
+                        let next = por.is_checked().unwrap_or(false);
+                        let _ = por.set_checked(next);
+                        emit("menu:pop_out_reference", if next { "on" } else { "off" });
+                    }
                     "appearance_light" => { let _ = al.set_checked(true); let _ = ad.set_checked(false); let _ = as_.set_checked(false); emit("menu:appearance", "light"); }
                     "appearance_dark" => { let _ = al.set_checked(false); let _ = ad.set_checked(true); let _ = as_.set_checked(false); emit("menu:appearance", "dark"); }
                     "appearance_system" => { let _ = al.set_checked(false); let _ = ad.set_checked(false); let _ = as_.set_checked(true); emit("menu:appearance", "system"); }
@@ -944,6 +1059,8 @@ pub fn run() {
             build_list_cache,
             rescan_registry,
             handles_ready,
+            open_reference_window,
+            close_reference_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

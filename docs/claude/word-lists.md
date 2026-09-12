@@ -102,7 +102,7 @@ String data sections (packed null-terminated strings):
 - `normalize=off`, fold-accents on: iterate `orig_lower_strings`, folding each
   candidate on the fly (the one allocating combination — `normalize=off` is
   already the narrowest of the four modes, so a 5th on-disk field wasn't
-  worth it; see `implementation-notes.md`)
+  worth it; see `implementation-notes-engine.md`)
 - Anagram search: letter-set match (`CharCounts` in `matcher.rs`) against
   whichever of the above forms the current mode selects — there's no
   separate sort-key-based lookup path

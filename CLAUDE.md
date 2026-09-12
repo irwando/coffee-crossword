@@ -10,7 +10,9 @@ and always-needed context. Detailed reference material lives in `docs/claude/`.
 | `docs/claude/architecture.md` | Stack, dependencies, repo structure, arch diagram, Tauri plugins |
 | `docs/claude/word-lists.md` | Full word list management design (cache format, registry, UI) |
 | `docs/claude/api-reference.md` | Engine API, Tauri commands, Tauri events, CLI reference |
-| `docs/claude/implementation-notes.md` | Implementation notes, startup delay fix |
+| `docs/claude/implementation-notes-ui.md` | Menus, checkmark sync, pop-out reference window, rendering/virtualization |
+| `docs/claude/implementation-notes-engine.md` | Macro expansion, letter variables, anagram matching, accent folding, word-length prefix |
+| `docs/claude/implementation-notes-backend.md` | Tauri state, mmap caching, concurrency, streaming, startup delay fix, dictionaries folder switching |
 | `docs/claude/status.md` | Feature checklists, UI features, current status, impl plan |
 | `docs/claude/decisions.md` | Decisions log, TSD research, known gaps, reference links |
 | `docs/claude/testing.md` | Test rules, coverage requirements, how to run tests |

@@ -21,7 +21,7 @@ pub struct MatchGroup {
 ```
 
 `fold_accents` folds accented letters to their plain equivalents before
-matching (`andre` matches `André`) — see `implementation-notes.md` for how it
+matching (`andre` matches `André`) — see `implementation-notes-engine.md` for how it
 interacts with the `.tsc` cache format.
 
 Word length is an optional prefix on the pattern string itself, parsed by
